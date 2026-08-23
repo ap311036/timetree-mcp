@@ -6,19 +6,41 @@
 [![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-339933)](package.json)
 [![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-3776AB)](pyproject.toml)
 
-TimeTree MCP 是一個非官方的 [Model Context Protocol](https://modelcontextprotocol.io/) server，可透過 HTTPS 存取 TimeTree 行事曆。預設使用 Python direct client，不會啟動瀏覽器；browser transport 僅保留作為相容備援。session cookie 與 CSRF token 只存在 MCP process 記憶體中。
+**讓你的 AI 助手讀懂，也安全地更新 TimeTree。**
 
-> **重要：** TimeTree 官方 Connect App／API 已終止。本專案使用 TimeTree Web 的非公開 endpoint，服務改版時可能失效。請自行評估風險並遵守 TimeTree 的條款與政策。
+不用再一邊聊天、一邊切回行事曆找資料。TimeTree MCP 是一個非官方的
+[Model Context Protocol](https://modelcontextprotocol.io/) server，能把行程、
+備忘、留言與行事曆資訊帶進支援 MCP 的 AI 助手；需要建立、修改或刪除內容
+時，只有在你明確確認後才會真的寫入。
+
+你可以直接這樣問：
+
+- 「幫我整理這週的家庭行程，找出時間衝突。」
+- 「下個月有哪些活動提到『牙醫』？」
+- 「在家庭行事曆建立週六下午兩點的聚餐，先讓我確認內容。」
+- 「監控這個行事曆，有新增、修改或移除時通知我。」
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/ap311036/timetree-mcp/main/docs/assets/timetree-mcp-demo.svg" alt="TimeTree MCP workflow showing local credential safety, MCP tools, and explicit confirmation for writes" width="960">
 </p>
 
-## 為什麼使用 TimeTree MCP
+## 為什麼選擇 TimeTree MCP
 
-它把低摩擦的 `npx` 啟動方式，和敏感行事曆操作需要的安全邊界放在一起：讀取可以自動化，寫入必須明確確認；credentials 不會進入 MCP tool arguments，session 只存在 process memory。
+| | 重點 |
+|---|---|
+| **對話中完成行事曆工作** | 查詢行程、搜尋活動、管理備忘與留言，不必離開正在使用的 AI 助手。 |
+| **每次寫入都由你決定** | 所有新增、修改、刪除操作都必須明確傳入 `confirm: true`。 |
+| **敏感資料留在本機** | credentials 不會出現在 MCP tool arguments；session cookie 與 CSRF token 只存在 process memory。 |
+| **直接、輕量** | 預設由 Python direct client 透過 HTTPS 連線，不啟動瀏覽器，runtime 只使用 Python standard library。 |
+| **掌握行事曆變化** | 可在背景 polling，並透過 MCP notifications 回報新增、修改與移除。 |
 
-## 功能
+> [!IMPORTANT]
+> TimeTree 官方 Connect App／API 已於
+> [2023 年 12 月 22 日終止](https://timetreeapp.com/intl/en/newsroom/2023-07-23/connectapp-api)。
+> 本專案使用 TimeTree Web 的非公開 endpoint，服務改版時可能失效。請自行
+> 評估風險，並遵守 TimeTree 的條款與政策。
+
+## 支援的操作
 
 - 讀取 calendars、events、memos、comments、labels 與 members。
 - 建立、更新、刪除 events 與 memos。
@@ -28,29 +50,19 @@ TimeTree MCP 是一個非官方的 [Model Context Protocol](https://modelcontext
 - 所有寫入操作都要求明確傳入 `confirm: true`。
 - 不把 credentials 放進 MCP tool arguments，authenticated session 只保存在記憶體。
 
-## 需求
+## 快速開始
+
+### 執行需求
 
 - Python 3.10 或更新版本。
 - TimeTree 帳號。
+- 使用 NPM wrapper 時需要 Node.js 18 或更新版本。
 - macOS 才能使用 Keychain helper；其他平台可使用環境變數或 password file。
 
-## 安裝
+### 最快方式：NPM wrapper
 
-```bash
-git clone <repository-url>
-cd timetree-mcp
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --editable .
-```
-
-Runtime 只使用 Python standard library。安裝後會提供
-`timetree-mcp` 與 `timetree-credentials` 指令。
-
-### 使用 NPM wrapper
-
-NPM wrapper 需要 Node.js 18+ 與 Python 3.10+；它會啟動 package 內附的
-Python MCP server，並轉發 MCP 的 stdin/stdout：
+一行指令即可啟動 package 內附的 Python MCP server，並轉發 MCP 的
+stdin/stdout：
 
 ```bash
 npx --yes timetree-mcp
@@ -62,6 +74,22 @@ npx --yes timetree-mcp
 npm install --global timetree-mcp
 timetree-mcp
 ```
+
+接著完成下方的 [credentials 設定](#設定-credentials)，再把 server
+[註冊到 Codex](#註冊到-codex)。
+
+### 從原始碼安裝
+
+```bash
+git clone https://github.com/ap311036/timetree-mcp.git
+cd timetree-mcp
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --editable .
+```
+
+Runtime 只使用 Python standard library。安裝後會提供
+`timetree-mcp` 與 `timetree-credentials` 指令。
 
 ## 設定 credentials
 
