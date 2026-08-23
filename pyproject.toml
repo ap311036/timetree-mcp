@@ -31,5 +31,9 @@ dependencies = []
 timetree-mcp = "timetree_mcp.server:main"
 timetree-credentials = "timetree_mcp.credentials:main"
 
+[tool.setuptools]
+package-dir = {"" = "src"}
+
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["timetree_mcp*"]

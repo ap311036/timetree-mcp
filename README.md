@@ -75,7 +75,7 @@ codex mcp remove timetree
 codex mcp add timetree \
   --env TIMETREE_EMAIL=your-email@example.com \
   --env TIMETREE_PASSWORD_FILE=/absolute/path/to/timetree-password \
-  -- python3 /absolute/path/to/timetree-mcp/timetree_mcp/server.py
+  -- python3 /absolute/path/to/timetree-mcp/src/timetree_mcp/server.py
 ```
 
 不要把實際 password 放在 shell history、MCP tool arguments、README 或
@@ -119,7 +119,7 @@ MCP `notifications/message`。監控依附於 MCP process，client 結束後也�
 ## 專案結構
 
 ```text
-timetree_mcp/              Python package 與 MCP server
+src/timetree_mcp/          Python package 與 MCP server
 scripts/                   本機設定輔助腳本
 tests/                     standard-library unittest 測試
 .github/workflows/ci.yml   Continuous integration
@@ -131,7 +131,7 @@ tests/                     standard-library unittest 測試
 python3 -m unittest discover -s tests -v
 ```
 
-舊的 ego-browser transport 保留在 `timetree_mcp/browser.py` 作為相容備援，
+舊的 ego-browser transport 保留在 `src/timetree_mcp/browser.py` 作為相容備援，
 但 server 預設不會載入它。
 
 ## License

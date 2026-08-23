@@ -122,7 +122,7 @@ class TimeTreeHttpReader:
         with self._lock:
             email, password = self._credentials()
             if not email or not password:
-                raise RuntimeError("Set TIMETREE_EMAIL and TIMETREE_PASSWORD, or run python3 -m timetree_mcp.credentials set")
+                raise RuntimeError("Set TIMETREE_EMAIL and TIMETREE_PASSWORD, or run timetree-credentials set")
             response = self._request_raw(
                 "PUT",
                 f"{self.api_base}/auth/email/signin",

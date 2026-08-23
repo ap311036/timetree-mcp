@@ -5,7 +5,8 @@ Thanks for helping improve TimeTree MCP.
 ## Development setup
 
 The project uses only the Python standard library at runtime. Python 3.10 or
-newer is required.
+newer is required. Install the package before running tests so the test suite
+exercises the same `src` layout used by packaging and CI.
 
 ```bash
 python3 -m venv .venv

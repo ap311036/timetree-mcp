@@ -4,4 +4,4 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
 
-exec python3 "${PROJECT_DIR}/timetree_mcp/credentials.py" set
+exec python3 "${PROJECT_DIR}/src/timetree_mcp/credentials.py" set
