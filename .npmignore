@@ -1,0 +1,13 @@
+# Python build and runtime artifacts
+**/__pycache__/
+*.py[cod]
+
+# Repository-only files
+.github/
+.gitignore
+.npmignore
+CONTRIBUTING.md
+pyproject.toml
+scripts/
+test/
+tests/

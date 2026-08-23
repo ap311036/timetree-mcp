@@ -1,0 +1,30 @@
+{
+  "name": "timetree-mcp",
+  "version": "0.2.0",
+  "description": "An unofficial MCP server for TimeTree calendar access",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "timetree-mcp": "bin/timetree-mcp.js"
+  },
+  "files": [
+    "bin/",
+    "src/timetree_mcp/*.py",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "keywords": [
+    "mcp",
+    "timetree",
+    "calendar"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --test test/npm-wrapper.test.js"
+  }
+}

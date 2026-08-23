@@ -33,6 +33,22 @@ python -m pip install --editable .
 Runtime 只使用 Python standard library。安裝後會提供
 `timetree-mcp` 與 `timetree-credentials` 指令。
 
+### 使用 NPM wrapper
+
+NPM wrapper 需要 Node.js 18+ 與 Python 3.10+；它會啟動 package 內附的
+Python MCP server，並轉發 MCP 的 stdin/stdout：
+
+```bash
+npx --yes timetree-mcp
+```
+
+也可以全域安裝：
+
+```bash
+npm install --global timetree-mcp
+timetree-mcp
+```
+
 ## 設定 credentials
 
 macOS 建議使用 Keychain。設定時密碼只會在終端隱藏輸入，不會進入 shell
@@ -81,6 +97,15 @@ codex mcp add timetree \
 不要把實際 password 放在 shell history、MCP tool arguments、README 或
 source code。
 
+使用 NPM wrapper 註冊時，把 server command 改成：
+
+```bash
+codex mcp add timetree \
+  --env TIMETREE_EMAIL=your-email@example.com \
+  --env TIMETREE_PASSWORD_FILE=/absolute/path/to/timetree-password \
+  -- npx --yes timetree-mcp
+```
+
 ## MCP tools
 
 ### 登入與讀取
@@ -120,8 +145,10 @@ MCP `notifications/message`。監控依附於 MCP process，client 結束後也�
 
 ```text
 src/timetree_mcp/          Python package 與 MCP server
+bin/                       NPM wrapper launcher
 scripts/                   本機設定輔助腳本
 tests/                     standard-library unittest 測試
+test/                      NPM wrapper 測試
 .github/workflows/ci.yml   Continuous integration
 ```
 
@@ -129,6 +156,7 @@ tests/                     standard-library unittest 測試
 
 ```bash
 python3 -m unittest discover -s tests -v
+npm test
 ```
 
 舊的 ego-browser transport 保留在 `src/timetree_mcp/browser.py` 作為相容備援，

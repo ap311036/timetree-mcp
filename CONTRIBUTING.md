@@ -4,15 +4,17 @@ Thanks for helping improve TimeTree MCP.
 
 ## Development setup
 
-The project uses only the Python standard library at runtime. Python 3.10 or
-newer is required. Install the package before running tests so the test suite
-exercises the same `src` layout used by packaging and CI.
+The Python server uses only the standard library at runtime. Python 3.10 or
+newer is required. The NPM wrapper additionally requires Node.js 18 or newer.
+Install the Python package before running its tests so the test suite exercises
+the same `src` layout used by packaging and CI.
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --editable .
 python -m unittest discover -s tests -v
+npm test
 ```
 
 ## Changes
