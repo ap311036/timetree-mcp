@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 680" role="img" aria-labelledby="title desc">
+  <title id="title">TimeTree MCP workflow</title>
+  <desc id="desc">A dark interface showing the npx launch command, local credential safety, calendar reads, confirmed writes, and change notifications.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#101827"/>
+      <stop offset="1" stop-color="#17243a"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#69e7c7"/>
+      <stop offset="1" stop-color="#79a8ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#020617" flood-opacity=".35"/>
+    </filter>
+    <style>
+      .sans { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+      .muted { fill: #9aabc4; }
+      .soft { fill: #d9e5f7; }
+      .panel { fill: #1a2940; stroke: #304665; stroke-width: 2; }
+      .line { stroke: #5d789d; stroke-width: 3; stroke-linecap: round; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="680" rx="28" fill="url(#bg)"/>
+  <circle cx="1050" cy="-20" r="230" fill="#5b7cff" opacity=".08"/>
+  <circle cx="115" cy="700" r="230" fill="#69e7c7" opacity=".07"/>
+
+  <text x="70" y="76" class="sans" font-size="22" font-weight="700" fill="#69e7c7">TIMETREE MCP</text>
+  <text x="70" y="124" class="sans" font-size="42" font-weight="750" fill="#f3f7ff">Calendar access with a reviewable write path.</text>
+  <text x="70" y="158" class="sans muted" font-size="18">Direct HTTPS · local credentials · explicit confirmation · background monitoring</text>
+
+  <g filter="url(#shadow)">
+    <rect x="70" y="205" width="1060" height="92" rx="18" fill="#0b1220" stroke="#314964" stroke-width="2"/>
+    <circle cx="104" cy="251" r="9" fill="#ff6b7a"/>
+    <circle cx="132" cy="251" r="9" fill="#f4c95d"/>
+    <circle cx="160" cy="251" r="9" fill="#69e7c7"/>
+    <text x="205" y="260" class="mono" font-size="23" fill="#d9e5f7">$ npx --yes timetree-mcp</text>
+    <text x="846" y="260" class="mono" font-size="16" fill="#69e7c7">MCP stdio ready</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="70" y="340" width="330" height="242" rx="20" class="panel"/>
+    <text x="100" y="382" class="sans" font-size="16" font-weight="700" fill="#69e7c7">01 · LOCAL SAFETY</text>
+    <text x="100" y="426" class="sans" font-size="25" font-weight="700" fill="#f3f7ff">Credentials stay local</text>
+    <text x="100" y="462" class="sans muted" font-size="17">Keychain or password file</text>
+    <rect x="100" y="493" width="270" height="48" rx="12" fill="#223653"/>
+    <text x="124" y="524" class="mono" font-size="16" fill="#d9e5f7">cookies + CSRF → memory</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="435" y="340" width="330" height="242" rx="20" class="panel"/>
+    <text x="465" y="382" class="sans" font-size="16" font-weight="700" fill="#79a8ff">02 · MCP TOOLS</text>
+    <text x="465" y="426" class="sans" font-size="25" font-weight="700" fill="#f3f7ff">Read, manage, monitor</text>
+    <rect x="465" y="456" width="122" height="38" rx="10" fill="#315275"/>
+    <rect x="597" y="456" width="138" height="38" rx="10" fill="#315275"/>
+    <text x="483" y="481" class="sans" font-size="15" fill="#e9f2ff">calendars</text>
+    <text x="617" y="481" class="sans" font-size="15" fill="#e9f2ff">events + memos</text>
+    <rect x="465" y="510" width="270" height="42" rx="10" fill="#162338" stroke="#41658c"/>
+    <text x="487" y="537" class="mono" font-size="15" fill="#9cc2ff">notifications/message</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="800" y="340" width="330" height="242" rx="20" class="panel"/>
+    <text x="830" y="382" class="sans" font-size="16" font-weight="700" fill="#f4c95d">03 · HUMAN CONFIRMATION</text>
+    <text x="830" y="426" class="sans" font-size="25" font-weight="700" fill="#f3f7ff">Writes are explicit</text>
+    <rect x="830" y="456" width="270" height="42" rx="10" fill="#4b3d22" stroke="#b08e43"/>
+    <text x="854" y="483" class="mono" font-size="16" fill="#ffe7a6">confirm: true</text>
+    <text x="830" y="536" class="sans muted" font-size="16">Create · update · delete</text>
+  </g>
+
+  <path d="M400 460 H435" class="line"/>
+  <path d="M765 460 H800" class="line"/>
+  <path d="M418 450 l16 10 -16 10" fill="none" stroke="#6e8db4" stroke-width="3"/>
+  <path d="M783 450 l16 10 -16 10" fill="none" stroke="#6e8db4" stroke-width="3"/>
+  <text x="70" y="635" class="sans muted" font-size="15">Unofficial TimeTree Web API · Python 3.10+ · Node.js 18+</text>
+  <text x="1130" y="635" text-anchor="end" class="mono" font-size="15" fill="#69e7c7">timetree-mcp</text>
+</svg>

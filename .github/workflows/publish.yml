@@ -1,0 +1,76 @@
+name: Publish NPM package
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish to NPM instead of running validation only"
+        required: true
+        type: boolean
+        default: false
+
+concurrency:
+  group: publish-npm-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Validate and publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Run release checks
+        run: npm test
+
+      - name: Check NPM package contents
+        run: npm run pack:check
+
+      - name: Validate tag and manifest versions
+        if: github.ref_type == 'tag'
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          package_version="$(node -p "require('./package.json').version")"
+          manifest_version="$(node -p "require('./server.json').version")"
+          if [ "$tag_version" != "$package_version" ] || [ "$package_version" != "$manifest_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME, package $package_version, and manifest $manifest_version must match"
+            exit 1
+          fi
+
+      - name: Publish to NPM
+        run: |
+          package_name="$(node -p "require('./package.json').name")"
+          package_version="$(node -p "require('./package.json').version")"
+
+          if npm view "${package_name}@${package_version}" version >/dev/null 2>&1; then
+            echo "${package_name}@${package_version} is already published. Skipping."
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.publish }}" != "true" ]; then
+            echo "Manual dispatch publish=false. Validation completed without publishing."
+            exit 0
+          fi
+
+          npm publish --access public

@@ -1,0 +1,57 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ap311036/timetree-mcp",
+  "title": "TimeTree MCP",
+  "description": "Access TimeTree calendars, events, memos, comments, labels, and background change monitoring through a direct HTTPS MCP server with explicit confirmation for writes.",
+  "version": "0.2.1",
+  "websiteUrl": "https://github.com/ap311036/timetree-mcp",
+  "repository": {
+    "url": "https://github.com/ap311036/timetree-mcp",
+    "source": "github",
+    "id": "1343387026"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "timetree-mcp",
+      "version": "0.2.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "TIMETREE_EMAIL",
+          "description": "TimeTree account email. Optional when the macOS Keychain contains the email.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "TIMETREE_PASSWORD",
+          "description": "TimeTree account password. Prefer macOS Keychain or a password file instead of passing this directly.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "TIMETREE_PASSWORD_FILE",
+          "description": "Absolute path to a password file with restricted permissions, preferably mode 600.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "TIMETREE_BASE_URL",
+          "description": "Optional TimeTree web base URL override. Defaults to https://timetreeapp.com.",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "TIMETREE_USER_AGENT",
+          "description": "Optional HTTP User-Agent override for the direct HTTPS transport.",
+          "isRequired": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

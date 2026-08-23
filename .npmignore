@@ -6,8 +6,8 @@
 .github/
 .gitignore
 .npmignore
+**/.DS_Store
 CONTRIBUTING.md
-pyproject.toml
 scripts/
 test/
 tests/

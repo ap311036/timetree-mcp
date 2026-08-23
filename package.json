@@ -1,8 +1,13 @@
 {
   "name": "timetree-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
+  "mcpName": "io.github.ap311036/timetree-mcp",
   "description": "An unofficial MCP server for TimeTree calendar access",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ap311036/timetree-mcp"
+  },
   "engines": {
     "node": ">=18"
   },
@@ -12,19 +17,29 @@
   "files": [
     "bin/",
     "src/timetree_mcp/*.py",
+    "docs/*.md",
+    "skills/**/SKILL.md",
     "README.md",
     "LICENSE",
-    "SECURITY.md"
+    "SECURITY.md",
+    "server.json",
+    "pyproject.toml"
   ],
   "keywords": [
     "mcp",
     "timetree",
-    "calendar"
+    "calendar",
+    "events",
+    "memos",
+    "monitoring"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "test": "node --test test/npm-wrapper.test.js"
+    "test": "node --test test/npm-wrapper.test.js test/promotion-contract.test.js && env PYTHONPATH=src python3 -m unittest discover -s tests",
+    "test:node": "node --test test/npm-wrapper.test.js test/promotion-contract.test.js",
+    "test:python": "env PYTHONPATH=src python3 -m unittest discover -s tests",
+    "pack:check": "npm pack --dry-run"
   }
 }

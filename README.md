@@ -1,8 +1,22 @@
 # TimeTree MCP
 
+[![npm](https://img.shields.io/npm/v/timetree-mcp?color=blue)](https://www.npmjs.com/package/timetree-mcp)
+[![CI](https://github.com/ap311036/timetree-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ap311036/timetree-mcp/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-339933)](package.json)
+[![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-3776AB)](pyproject.toml)
+
 TimeTree MCP 是一個非官方的 [Model Context Protocol](https://modelcontextprotocol.io/) server，可透過 HTTPS 存取 TimeTree 行事曆。預設使用 Python direct client，不會啟動瀏覽器；browser transport 僅保留作為相容備援。session cookie 與 CSRF token 只存在 MCP process 記憶體中。
 
 > **重要：** TimeTree 官方 Connect App／API 已終止。本專案使用 TimeTree Web 的非公開 endpoint，服務改版時可能失效。請自行評估風險並遵守 TimeTree 的條款與政策。
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ap311036/timetree-mcp/main/docs/assets/timetree-mcp-demo.svg" alt="TimeTree MCP workflow showing local credential safety, MCP tools, and explicit confirmation for writes" width="960">
+</p>
+
+## 為什麼使用 TimeTree MCP
+
+它把低摩擦的 `npx` 啟動方式，和敏感行事曆操作需要的安全邊界放在一起：讀取可以自動化，寫入必須明確確認；credentials 不會進入 MCP tool arguments，session 只存在 process memory。
 
 ## 功能
 
@@ -141,11 +155,22 @@ codex mcp add timetree \
 首次 polling 只建立 baseline；之後偵測到新增、修改、移除時，server 會送出
 MCP `notifications/message`。監控依附於 MCP process，client 結束後也會停止。
 
+## 文件與 discoverability
+
+- [Agent Guide](docs/agent-guide.md)：setup、tool workflow、安全規則與錯誤處理。
+- [Usage Guide](docs/usage.md)：NPM client config、本機 checkout 與 monitoring。
+- [Publishing](docs/publishing.md)：版本契約、NPM package、MCP Registry manifest 與 GitHub Actions。
+- [`server.json`](server.json)：`io.github.ap311036/timetree-mcp` 的 MCP Registry metadata。
+- [Companion skill](skills/timetree-mcp/SKILL.md)：給支援 skills 的 agent 使用的操作規範。
+
 ## 專案結構
 
 ```text
 src/timetree_mcp/          Python package 與 MCP server
 bin/                       NPM wrapper launcher
+docs/                      Agent、發布與展示文件
+skills/timetree-mcp/       Companion skill
+server.json               MCP Registry manifest
 scripts/                   本機設定輔助腳本
 tests/                     standard-library unittest 測試
 test/                      NPM wrapper 測試
@@ -155,12 +180,29 @@ test/                      NPM wrapper 測試
 ## 測試
 
 ```bash
-python3 -m unittest discover -s tests -v
 npm test
+```
+
+`npm test` 會依序執行 Node wrapper／promotion contract tests 與完整 Python
+unittest suite。單獨執行 Python 測試：
+
+```bash
+env PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
 舊的 ego-browser transport 保留在 `src/timetree_mcp/browser.py` 作為相容備援，
 但 server 預設不會載入它。
+
+## 發布
+
+目前公開套件可直接使用：
+
+```bash
+npx --yes timetree-mcp
+```
+
+版本發布與 MCP Registry metadata 維護方式請見
+[docs/publishing.md](docs/publishing.md)。
 
 ## License
 
