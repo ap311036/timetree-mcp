@@ -1,0 +1,175 @@
+import json
+import os
+import tempfile
+import unittest
+from unittest.mock import patch
+
+from timetree_mcp.http_reader import HttpResponse, TimeTreeHttpReader
+
+
+class FakeTransport:
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.calls = []
+        self.cleared = False
+
+    def request(self, method, url, body=None, headers=None, timeout=None):
+        self.calls.append({"method": method, "url": url, "body": body, "headers": headers or {}})
+        if not self.responses:
+            raise AssertionError(f"unexpected request: {method} {url}")
+        return self.responses.pop(0)
+
+    def clear(self):
+        self.cleared = True
+
+
+class FakeCredentialStore:
+    def __init__(self, credentials=(None, None)):
+        self.credentials = credentials
+
+    def read(self):
+        return self.credentials
+
+    def status(self):
+        return {"available": True, "email_configured": bool(self.credentials[0]), "password_configured": bool(self.credentials[1])}
+
+
+class HttpReaderTests(unittest.TestCase):
+    def test_login_uses_put_credentials_then_fetches_csrf_without_exposing_password(self):
+        transport = FakeTransport(
+            [
+                HttpResponse(200, {}, {}),
+                HttpResponse(200, {}, '<meta name="csrf-token" content="csrf-123">'),
+            ]
+        )
+        reader = TimeTreeHttpReader(
+            email="me@example.com",
+            password="secret-value",
+            transport=transport,
+        )
+
+        result = reader.login()
+
+        self.assertTrue(result["authenticated"])
+        self.assertTrue(result["csrf_available"])
+        self.assertEqual(transport.calls[0]["method"], "PUT")
+        self.assertTrue(transport.calls[0]["url"].endswith("/api/v1/auth/email/signin"))
+        self.assertEqual(transport.calls[0]["body"]["uid"], "me@example.com")
+        self.assertEqual(transport.calls[0]["body"]["password"], "secret-value")
+        self.assertNotIn("secret-value", json.dumps(result))
+        self.assertEqual(reader.status()["authenticated"], True)
+
+    def test_missing_credentials_fail_without_network_call(self):
+        transport = FakeTransport([])
+        reader = TimeTreeHttpReader(transport=transport, credential_store=FakeCredentialStore())
+
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "TIMETREE_EMAIL.*TIMETREE_PASSWORD"):
+                reader.login()
+
+        self.assertEqual(transport.calls, [])
+
+    def test_password_file_can_supply_secret_without_putting_it_in_mcp_arguments(self):
+        transport = FakeTransport(
+            [
+                HttpResponse(200, {}, {}),
+                HttpResponse(200, {}, '<meta name="csrf-token" content="csrf-123">'),
+            ]
+        )
+        reader = TimeTreeHttpReader(transport=transport)
+        with tempfile.NamedTemporaryFile("w", delete=True) as secret_file:
+            secret_file.write("file-secret\n")
+            secret_file.flush()
+            with patch.dict(
+                os.environ,
+                {"TIMETREE_EMAIL": "me@example.com", "TIMETREE_PASSWORD_FILE": secret_file.name},
+                clear=True,
+            ):
+                reader.login()
+
+        self.assertEqual(transport.calls[0]["body"]["password"], "file-secret")
+
+    def test_write_request_uses_in_memory_csrf_token_and_logout_clears_session(self):
+        transport = FakeTransport(
+            [
+                HttpResponse(200, {}, {}),
+                HttpResponse(200, {}, '<meta name="csrf-token" content="csrf-123">'),
+                HttpResponse(201, {}, {"event": {"id": "created", "uuid": "uuid-1", "title": "Test", "start_at": 1, "end_at": 2}}),
+            ]
+        )
+        reader = TimeTreeHttpReader(email="me@example.com", password="secret", transport=transport)
+        reader.login()
+
+        result = reader.read(
+            "create_event",
+            {"calendar_id": "cal-1", "payload": {"title": "Test"}},
+        )
+        reader.logout()
+
+        self.assertTrue(result["success"])
+        write_call = transport.calls[2]
+        self.assertEqual(write_call["method"], "POST")
+        self.assertEqual(write_call["headers"]["X-CSRF-Token"], "csrf-123")
+        self.assertTrue(transport.cleared)
+        self.assertFalse(reader.status()["authenticated"])
+
+    def test_direct_reader_lists_events_without_browser_calls(self):
+        transport = FakeTransport(
+            [
+                HttpResponse(200, {}, {}),
+                HttpResponse(200, {}, '<meta name="csrf-token" content="csrf-123">'),
+                HttpResponse(200, {}, {"calendars": [{"id": 1, "alias_code": "a", "name": "Personal"}]}),
+                HttpResponse(200, {}, {"events": [{"id": "event-1", "uuid": "uuid-1", "calendar_id": 1, "title": "Lunch", "start_at": 1787619600000, "end_at": 1787623200000}], "chunk": False, "since": 0}),
+            ]
+        )
+        reader = TimeTreeHttpReader(email="me@example.com", password="secret", transport=transport)
+
+        result = reader.read(
+            "list_events",
+            {"start_date": "2026-08-25", "end_date": "2026-08-26", "calendar_id": "1"},
+        )
+
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["events"][0]["calendar_name"], "Personal")
+        self.assertEqual([call["method"] for call in transport.calls], ["PUT", "GET", "GET", "GET"])
+
+    def test_login_falls_back_to_keychain_store_and_exposes_presence_only_status(self):
+        transport = FakeTransport(
+            [
+                HttpResponse(200, {}, {}),
+                HttpResponse(200, {}, '<meta name="csrf-token" content="csrf-123">'),
+            ]
+        )
+        store = FakeCredentialStore(("keychain@example.com", "keychain-secret"))
+        reader = TimeTreeHttpReader(transport=transport, credential_store=store)
+
+        result = reader.read("login", {})
+        status = reader.read("keychain_status", {})
+
+        self.assertTrue(result["authenticated"])
+        self.assertEqual(transport.calls[0]["body"]["uid"], "keychain@example.com")
+        self.assertEqual(transport.calls[0]["body"]["password"], "keychain-secret")
+        self.assertNotIn("keychain-secret", json.dumps(status))
+        self.assertTrue(status["password_configured"])
+
+    def test_list_events_skips_unavailable_calendars_and_reports_them(self):
+        transport = FakeTransport(
+            [
+                HttpResponse(200, {}, {}),
+                HttpResponse(200, {}, '<meta name="csrf-token" content="csrf-123">'),
+                HttpResponse(200, {}, {"calendars": [{"id": 1, "name": "Old"}, {"id": 2, "name": "Readable"}]}),
+                HttpResponse(400, {}, {"error": {"code": -425, "message": "failed to api request"}}),
+                HttpResponse(200, {}, {"events": [{"id": "event-1", "uuid": "uuid-1", "calendar_id": 2, "title": "Lunch", "start_at": 1787619600000, "end_at": 1787623200000}], "chunk": False, "since": 0}),
+            ]
+        )
+        reader = TimeTreeHttpReader(email="me@example.com", password="secret", transport=transport)
+
+        result = reader.read("list_events", {"start_date": "2026-08-25", "end_date": "2026-08-26"})
+
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["events"][0]["calendar_id"], "2")
+        self.assertEqual(result["skipped_calendars"][0]["calendar_id"], "1")
+
+
+if __name__ == "__main__":
+    unittest.main()
