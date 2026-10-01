@@ -233,5 +233,42 @@ class HttpReaderTests(unittest.TestCase):
         self.assertEqual(result["incomplete_calendars"][0]["reason"], "repeated_cursor")
 
 
+    def test_calendar_listing_filters_deactivated_flat_and_nested_records(self):
+        calendars = [
+            {"id": 1, "name": "Missing"},
+            {"id": 2, "attributes": {"name": "Null", "deactivated_at": None}},
+            {"id": 3, "name": "Zero", "deactivated_at": 0},
+            {"id": 4, "name": "Inactive", "deactivated_at": 1700000000000},
+            {"id": 5, "attributes": {"name": "Inactive nested", "deactivated_at": 1700000000000}},
+        ]
+        reader = TimeTreeHttpReader(transport=FakeTransport([HttpResponse(200, {}, {"calendars": calendars})]))
+        reader._authenticated = True
+        self.assertEqual([c["id"] for c in reader.read("list_calendars", {})["calendars"]], ["1", "2", "3"])
+
+    def test_invalid_calendar_deactivation_value_is_not_silently_filtered(self):
+        for value in (True, "1700000000000", "", [], float("nan"), float("inf")):
+            with self.subTest(value=value):
+                reader = TimeTreeHttpReader(transport=FakeTransport([HttpResponse(200, {}, {"calendars": [{"id": 1, "deactivated_at": value}]})]))
+                with self.assertRaisesRegex(ValueError, "deactivated_at"):
+                    reader._get_calendars()
+
+    def test_default_event_sync_never_requests_deactivated_calendar(self):
+        transport = FakeTransport([
+            HttpResponse(200, {}, {"calendars": [{"id": 1, "deactivated_at": 123}, {"id": 2, "name": "Active", "deactivated_at": None}]}),
+            HttpResponse(200, {}, {"events": [], "chunk": False}),
+        ])
+        reader = TimeTreeHttpReader(transport=transport);reader._authenticated = True
+        result = reader.read("list_events", {"start_date": "2026-10-01", "end_date": "2026-10-31"})
+        self.assertTrue(result["sync_complete"])
+        self.assertTrue(transport.calls[1]["url"].endswith("/calendar/2/events/sync?since=0"))
+
+    def test_explicit_deactivated_calendar_is_rejected_before_sync(self):
+        transport = FakeTransport([HttpResponse(200, {}, {"calendars": [{"id": 1, "deactivated_at": 123}]})])
+        reader = TimeTreeHttpReader(transport=transport);reader._authenticated = True
+        with self.assertRaisesRegex(ValueError, "Unknown TimeTree calendar_id"):
+            reader.read("sync_events", {"calendar_id": "1"})
+        self.assertEqual(len(transport.calls), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,4 +1,7 @@
 import unittest
+import json
+import shutil
+import subprocess
 from unittest.mock import patch
 
 from timetree_mcp.browser import EgoBrowserReader, _script_for, parse_result_line, run_ego_browser_script
@@ -125,6 +128,30 @@ class BrowserReaderTests(unittest.TestCase):
         self.assertIn("/api/v1/calendar/", script)
         self.assertIn("/event", script)
         self.assertIn("method: \"POST\"", script)
+
+
+    @unittest.skipUnless(shutil.which("node"), "Node required for browser script behavior")
+    def test_generated_calendar_filter_handles_active_and_invalid_values(self):
+        script = _script_for("list_calendars", {})
+        function = script[script.index("async function getCalendars()") : script.index("function extractEvents")]
+        program = """
+        const assert = require('node:assert/strict');
+        let records=[];
+        const requestJson=async()=>({status:200,body:{calendars:records}});
+        const unwrap=x=>x;
+        const arrayAt=(x,keys)=>x.calendars;
+        """ + function + """
+        (async()=>{
+          records=[{id:1},{id:2,attributes:{deactivated_at:null}},{id:3,deactivated_at:0},{id:4,deactivated_at:123},{id:5,attributes:{deactivated_at:123}}];
+          assert.deepEqual((await getCalendars()).calendars.map(c=>c.id),['1','2','3']);
+          for(const value of [true,'123','',[],NaN,Infinity]){
+            records=[{id:1,deactivated_at:value}];
+            await assert.rejects(getCalendars(),/deactivated_at/);
+          }
+        })().catch(error=>{console.error(error);process.exitCode=1;});
+        """
+        completed = subprocess.run(["node", "-e", program], capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
 
 if __name__ == "__main__":

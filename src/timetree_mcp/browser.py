@@ -123,7 +123,15 @@ try {
       });
       const payload = unwrap(response.body);
       const source = arrayAt(payload, ["calendars", "data"]);
-      const calendars = source.map((calendar) => {
+      const calendars = source.filter((calendar) => {
+        const attributes = calendar?.attributes || calendar;
+        const deactivatedAt = attributes?.deactivated_at;
+        if (deactivatedAt == null) return true;
+        if (typeof deactivatedAt !== "number" || !Number.isFinite(deactivatedAt)) {
+          throw new Error("Invalid TimeTree calendar deactivated_at");
+        }
+        return deactivatedAt === 0;
+      }).map((calendar) => {
         const attributes = calendar?.attributes || calendar;
         return {
           id: String(calendar?.id ?? attributes?.id ?? calendar?.calendar_id ?? ""),

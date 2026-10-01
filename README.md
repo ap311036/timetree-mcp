@@ -246,3 +246,8 @@ npx --yes timetree-mcp
 
 此修正包含於 0.2.2；可用 `npx --yes timetree-mcp@0.2.2` 啟動。
 本機原始碼也可用 `python3 src/timetree_mcp/server.py` 啟動。
+
+日曆列出與預設事件同步只處理啟用日曆：API `deactivated_at` 缺少、
+`null` 或數字 `0` 視為啟用，非零數字視為停用。無效欄位型別會明確報錯，
+不靜默隱藏日曆。指定停用日曆 ID 會在同步前被拒絕；啟用日曆的上游
+同步錯誤仍保留於完整性結果。HTTPS 與舊 browser reader 採相同規則。

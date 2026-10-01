@@ -279,6 +279,12 @@ class TimeTreeHttpReader:
         for calendar in calendars:
             attributes = calendar.get("attributes") if isinstance(calendar, dict) else None
             source = attributes if isinstance(attributes, dict) else calendar
+            deactivated_at = source.get("deactivated_at")
+            if deactivated_at is not None:
+                if isinstance(deactivated_at, bool) or not isinstance(deactivated_at, (int, float)) or not math.isfinite(deactivated_at):
+                    raise ValueError("Invalid TimeTree calendar deactivated_at")
+                if deactivated_at != 0:
+                    continue
             result.append({
                 "id": str(calendar.get("id", source.get("id", ""))),
                 "alias_code": source.get("alias_code"),
