@@ -235,3 +235,14 @@ npx --yes timetree-mcp
 ## License
 
 本專案採用 [MIT License](LICENSE)。
+
+### 同步完整性
+
+事件讀取結果的 `sync_complete` 表示所選行事曆同步是否完成，
+不表示 `limit` 篩選後的輸出涵蓋所有事件。游標可遞增或遞減；重複／無效游標
+或 25 頁上限會在 `incomplete_calendars` 回報原因，並保留已讀事件。
+上游 `-425` 會保留 `error_code`；沒有取得事件的失敗行事曆列於
+`skipped_calendars`，整體 `sync_complete` 為 false。
+
+此修正包含於 0.2.2；可用 `npx --yes timetree-mcp@0.2.2` 啟動。
+本機原始碼也可用 `python3 src/timetree_mcp/server.py` 啟動。

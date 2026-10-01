@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import threading
@@ -288,21 +289,29 @@ class TimeTreeHttpReader:
     def _sync_raw_events(self, calendar_id: str) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         all_events: list[dict[str, Any]] = []
         since = 0
-        for _ in range(25):
+        requested_cursors = set()
+        for page in range(1, 26):
+            requested_cursors.add(since)
             response = self._request_raw("GET", f"{self.api_base}/calendar/{calendar_id}/events/sync?since={since}")
             body = self._body_dict(response.body)
             if not 200 <= response.status < 300:
                 error = body.get("error") if isinstance(body, dict) else None
                 if response.status == 400 and isinstance(error, dict) and error.get("code") == -425:
-                    return [], {"calendar_id": str(calendar_id), "status": response.status, "reason": "TimeTree calendar sync unavailable"}
+                    return all_events, {"calendar_id": str(calendar_id), "status": response.status, "error_code": -425, "reason": "TimeTree calendar sync unavailable", "pages": page}
                 raise TimeTreeHttpError(f"TimeTree GET request failed with HTTP {response.status}", response.status)
             events = body.get("events") or []
             all_events.extend(event for event in events if isinstance(event, dict))
             next_since = body.get("since")
-            if not body.get("chunk") or not isinstance(next_since, (int, float)) or next_since <= since:
-                break
+            if not body.get("chunk"):
+                return all_events, None
+            # TimeTree can return a decreasing cursor; treat it as an opaque token.
+            issue = {"calendar_id": str(calendar_id), "pages": page}
+            if isinstance(next_since, bool) or not isinstance(next_since, (int, float)) or not math.isfinite(next_since) or next_since != int(next_since):
+                return all_events, {**issue, "reason": "invalid_cursor"}
             since = int(next_since)
-        return all_events, None
+            if since in requested_cursors:
+                return all_events, {**issue, "reason": "repeated_cursor"}
+        return all_events, {"calendar_id": str(calendar_id), "pages": 25, "reason": "page_limit"}
 
     def _sync_events_result(self, calendar_id: Any = None) -> dict[str, Any]:
         calendars = self._get_calendars()
@@ -313,15 +322,20 @@ class TimeTreeHttpReader:
         names = {calendar["id"]: calendar["name"] for calendar in calendars}
         events: list[dict[str, Any]] = []
         skipped_calendars: list[dict[str, Any]] = []
+        incomplete_calendars: list[dict[str, Any]] = []
         for calendar in selected:
             raw_events, issue = self._sync_raw_events(calendar["id"])
             if issue:
-                skipped_calendars.append(issue)
-                continue
+                if not raw_events and issue.get("status") == 400:
+                    skipped_calendars.append(issue)
+                else:
+                    incomplete_calendars.append(issue)
             for raw in raw_events:
                 calendar_event_id = raw.get("calendar_id", calendar["id"])
                 events.append(normalize_event(raw, names.get(str(calendar_event_id))))
-        result = {"authenticated": True, "calendars": calendars, "events": events}
+        result = {"authenticated": True, "calendars": calendars, "events": events, "sync_complete": not (skipped_calendars or incomplete_calendars)}
+        if incomplete_calendars:
+            result["incomplete_calendars"] = incomplete_calendars
         if skipped_calendars:
             result["skipped_calendars"] = skipped_calendars
         return result
@@ -333,8 +347,10 @@ class TimeTreeHttpReader:
         snapshot = self._sync_events_result(arguments.get("calendar_id"))
         filtered = query_events(snapshot["events"], start_date=start_date, end_date=end_date, calendar_id=arguments.get("calendar_id"), query=arguments.get("query"), limit=arguments.get("limit", 100))
         result = {"start_date": start_date, "end_date": end_date, "calendar_id": arguments.get("calendar_id"), "query": arguments.get("query"), "count": len(filtered), "events": filtered}
-        if snapshot.get("skipped_calendars"):
-            result["skipped_calendars"] = snapshot["skipped_calendars"]
+        result["sync_complete"] = snapshot["sync_complete"]
+        for key in ("skipped_calendars", "incomplete_calendars"):
+            if snapshot.get(key):
+                result[key] = snapshot[key]
         return result
 
     def _list_memos(self, arguments: dict[str, Any]) -> dict[str, Any]:

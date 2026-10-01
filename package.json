@@ -1,6 +1,6 @@
 {
   "name": "timetree-mcp",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "mcpName": "io.github.ap311036/timetree-mcp",
   "description": "An unofficial MCP server for TimeTree calendar access",
   "license": "MIT",

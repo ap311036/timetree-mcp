@@ -169,6 +169,68 @@ class HttpReaderTests(unittest.TestCase):
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["events"][0]["calendar_id"], "2")
         self.assertEqual(result["skipped_calendars"][0]["calendar_id"], "1")
+        self.assertEqual(result["skipped_calendars"][0]["error_code"], -425)
+        self.assertFalse(result["sync_complete"])
+
+
+    def test_sync_follows_decreasing_cursor_until_terminal_page(self):
+        transport = FakeTransport([
+            HttpResponse(200, {}, {"events": [{"id": "a"}], "chunk": True, "since": 200}),
+            HttpResponse(200, {}, {"events": [{"id": "b"}], "chunk": True, "since": 100}),
+            HttpResponse(200, {}, {"events": [{"id": "c"}], "chunk": False, "since": 50}),
+        ])
+        reader = TimeTreeHttpReader(transport=transport)
+        events, issue = reader._sync_raw_events("1")
+        self.assertEqual([e["id"] for e in events], ["a", "b", "c"])
+        self.assertIsNone(issue)
+        self.assertTrue(transport.calls[2]["url"].endswith("since=100"))
+
+    def test_sync_reports_repeated_cursor_without_looping(self):
+        transport = FakeTransport([
+            HttpResponse(200, {}, {"events": [{"id": "a"}], "chunk": True, "since": 200}),
+            HttpResponse(200, {}, {"events": [{"id": "b"}], "chunk": True, "since": 100}),
+            HttpResponse(200, {}, {"events": [{"id": "c"}], "chunk": True, "since": 200}),
+        ])
+        reader = TimeTreeHttpReader(transport=transport)
+        events, issue = reader._sync_raw_events("1")
+        self.assertEqual(len(events), 3)
+        self.assertEqual(issue["reason"], "repeated_cursor")
+        self.assertEqual(len(transport.calls), 3)
+
+    def test_sync_reports_invalid_cursor_and_page_limit(self):
+        for cursor in (None, True, 1.5, "100", float("nan"), float("inf")):
+            with self.subTest(cursor=cursor):
+                reader = TimeTreeHttpReader(transport=FakeTransport([
+                    HttpResponse(200, {}, {"events": [], "chunk": True, "since": cursor}),
+                ]))
+                _, issue = reader._sync_raw_events("1")
+                self.assertEqual(issue["reason"], "invalid_cursor")
+        reader = TimeTreeHttpReader(transport=FakeTransport([
+            HttpResponse(200, {}, {"events": [], "chunk": True, "since": i + 1}) for i in range(25)
+        ]))
+        _, issue = reader._sync_raw_events("1")
+        self.assertEqual(issue["reason"], "page_limit")
+
+    def test_sync_preserves_partial_events_on_upstream_425(self):
+        reader = TimeTreeHttpReader(transport=FakeTransport([
+            HttpResponse(200, {}, {"events": [{"id": "a"}], "chunk": True, "since": 100}),
+            HttpResponse(400, {}, {"error": {"code": -425, "message": "failed to api request"}}),
+        ]))
+        events, issue = reader._sync_raw_events("1")
+        self.assertEqual(events, [{"id": "a"}])
+        self.assertEqual(issue["error_code"], -425)
+
+    def test_list_events_reports_partial_sync_and_retains_events(self):
+        transport = FakeTransport([
+            HttpResponse(200, {}, {"calendars": [{"id": 1, "name": "Readable"}]}),
+            HttpResponse(200, {}, {"events": [{"id": "a", "calendar_id": 1, "start_at": "2026-08-25T12:00:00Z", "end_at": "2026-08-25T13:00:00Z"}], "chunk": True, "since": 0}),
+        ])
+        reader = TimeTreeHttpReader(transport=transport)
+        reader._authenticated = True
+        result = reader.read("list_events", {"start_date": "2026-08-25", "end_date": "2026-08-26"})
+        self.assertEqual(result["count"], 1)
+        self.assertFalse(result["sync_complete"])
+        self.assertEqual(result["incomplete_calendars"][0]["reason"], "repeated_cursor")
 
 
 if __name__ == "__main__":

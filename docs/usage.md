@@ -9,7 +9,7 @@ For an MCP client that can run NPM commands, use the published wrapper:
   "mcpServers": {
     "timetree-mcp": {
       "command": "npx",
-      "args": ["--yes", "timetree-mcp@0.2.1"],
+      "args": ["--yes", "timetree-mcp@0.2.2"],
       "env": {
         "TIMETREE_EMAIL": "your-email@example.com",
         "TIMETREE_PASSWORD_FILE": "/absolute/path/to/timetree-password"
