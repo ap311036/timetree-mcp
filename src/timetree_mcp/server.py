@@ -86,6 +86,108 @@ VIRTUAL_ATTENDEES_SCHEMA = {
     "type": "array",
     "items": {"oneOf": [{"type": "string"}, {"type": "integer"}]},
 }
+
+# MCP annotations are client-facing hints; confirmation checks remain the
+# deterministic guard for every TimeTree write.
+TOOL_ANNOTATIONS: dict[str, dict[str, bool]] = {
+    **{
+        name: {
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": name not in {
+                "timetree_status",
+                "timetree_keychain_status",
+                "timetree_monitor_status",
+            },
+        }
+        for name in READ_TOOLS
+    },
+    "timetree_login": {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+    "timetree_logout": {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+    "timetree_create_event": {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+    "timetree_create_memo": {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+    "timetree_add_event_comment": {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+    "timetree_update_event": {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+    "timetree_update_memo": {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+    "timetree_update_event_comment": {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+    "timetree_update_calendar_labels": {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+    "timetree_delete_event": {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+    "timetree_delete_memo": {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+    "timetree_delete_event_comment": {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+    "timetree_start_monitor": {
+        "readOnlyHint": False,
+        "destructiveHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    },
+    "timetree_stop_monitor": {
+        "readOnlyHint": False,
+        "destructiveHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    },
+}
 CONFIRM_SCHEMA = {
     "type": "boolean",
     "const": True,
@@ -196,7 +298,7 @@ class TimeTreeMcpServer:
         memo_update.update({"calendar_id": ID_SCHEMA, "memo_uuid": {"type": "string"}, "confirm": CONFIRM_SCHEMA})
         memo_delete = {"calendar_id": ID_SCHEMA, "memo_uuid": {"type": "string"}, "confirm": CONFIRM_SCHEMA}
 
-        return [
+        tools = [
             {"name": "timetree_list_calendars", "description": "Read the calendars available in the authenticated TimeTree account.", "inputSchema": _object_schema({})},
             {"name": "timetree_list_events", "description": "Read TimeTree events overlapping a date range. This tool is read-only.", "inputSchema": _object_schema({"start_date": {"type": "string", "description": "Inclusive YYYY-MM-DD date."}, "end_date": {"type": "string", "description": "Exclusive YYYY-MM-DD date."}, "calendar_id": ID_SCHEMA, "query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}})},
             {"name": "timetree_status", "description": "Read the current direct HTTPS TimeTree authentication status.", "inputSchema": _object_schema({})},
@@ -222,6 +324,9 @@ class TimeTreeMcpServer:
             {"name": "timetree_stop_monitor", "description": "Stop the background TimeTree change monitor.", "inputSchema": _object_schema({})},
             {"name": "timetree_monitor_status", "description": "Read background monitor state and last error/change information.", "inputSchema": _object_schema({})},
         ]
+        for tool in tools:
+            tool["annotations"] = TOOL_ANNOTATIONS[tool["name"]]
+        return tools
 
     def _call_tool(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
         name = params.get("name")

@@ -84,6 +84,51 @@ class ServerProtocolTests(unittest.TestCase):
         ):
             self.assertIn(expected, names)
 
+    def test_every_tool_has_behavior_appropriate_mcp_annotations(self):
+        tools = TimeTreeMcpServer.tool_definitions()
+        by_name = {tool["name"]: tool for tool in tools}
+        expected = {
+            "timetree_status": (True, False, True, False),
+            "timetree_list_calendars": (True, False, True, True),
+            "timetree_list_events": (True, False, True, True),
+            "timetree_list_memos": (True, False, True, True),
+            "timetree_list_event_comments": (True, False, True, True),
+            "timetree_get_calendar_labels": (True, False, True, True),
+            "timetree_get_calendar_members": (True, False, True, True),
+            "timetree_get_calendar_virtual_members": (True, False, True, True),
+            "timetree_monitor_status": (True, False, True, False),
+            "timetree_keychain_status": (True, False, True, False),
+            "timetree_login": (False, False, False, True),
+            "timetree_logout": (False, True, True, False),
+            "timetree_create_event": (False, False, False, True),
+            "timetree_create_memo": (False, False, False, True),
+            "timetree_add_event_comment": (False, False, False, True),
+            "timetree_update_event": (False, True, False, True),
+            "timetree_update_memo": (False, True, False, True),
+            "timetree_update_event_comment": (False, True, False, True),
+            "timetree_update_calendar_labels": (False, True, False, True),
+            "timetree_delete_event": (False, True, True, True),
+            "timetree_delete_memo": (False, True, True, True),
+            "timetree_delete_event_comment": (False, True, True, True),
+            "timetree_start_monitor": (False, False, True, True),
+            "timetree_stop_monitor": (False, True, True, False),
+        }
+
+        self.assertEqual(set(by_name), set(expected))
+        self.assertEqual(len(tools), 24)
+        for name, values in expected.items():
+            with self.subTest(tool=name):
+                annotations = by_name[name]["annotations"]
+                self.assertEqual(
+                    annotations,
+                    dict(
+                        zip(
+                            ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"),
+                            values,
+                        ),
+                    ),
+                )
+
     def test_status_tool_returns_structured_json_and_calls_browser(self):
         response = self.server.handle(
             {
