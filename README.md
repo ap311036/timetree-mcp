@@ -1,5 +1,6 @@
 # TimeTree MCP
 
+[![M8ven Score](https://m8ven.ai/badge/mcp/ap311036-timetree-mcp-17hji8?v=c8cb3892fb9eb5b8f3cad12bd06ef8ca)](https://m8ven.ai/mcp/ap311036-timetree-mcp-17hji8?s=readme)
 [![npm](https://img.shields.io/npm/v/timetree-mcp?color=blue)](https://www.npmjs.com/package/timetree-mcp)
 [![CI](https://github.com/ap311036/timetree-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ap311036/timetree-mcp/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
