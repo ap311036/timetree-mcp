@@ -162,7 +162,7 @@ def query_events(
             continue
         if str(event.get("type", "")).casefold() == "birthday":
             continue
-        if calendar_id is not None and event.get("calendar_id") != calendar_id:
+        if calendar_id is not None and event.get("calendar_id") != str(calendar_id):
             continue
         if needle and needle not in _event_text(event).casefold():
             continue
