@@ -184,6 +184,33 @@ class QueryEventsTests(unittest.TestCase):
 
         self.assertEqual([event["id"] for event in result], ["1"])
 
+    def test_filters_by_integer_calendar_id(self):
+        events = [
+            {
+                "id": "1",
+                "title": "Match",
+                "start": "2026-08-25T01:00:00Z",
+                "end": "2026-08-25T02:00:00Z",
+                "calendar_id": "35207884",
+            },
+            {
+                "id": "2",
+                "title": "Other",
+                "start": "2026-08-25T03:00:00Z",
+                "end": "2026-08-25T04:00:00Z",
+                "calendar_id": "35207796",
+            },
+        ]
+
+        result = query_events(
+            events,
+            start_date="2026-08-25",
+            end_date="2026-08-26",
+            calendar_id=35207884,
+        )
+
+        self.assertEqual([event["id"] for event in result], ["1"])
+
     def test_rejects_invalid_date_range_and_limit(self):
         with self.assertRaises(ValueError):
             query_events([], start_date="2026-08-27", end_date="2026-08-26")
