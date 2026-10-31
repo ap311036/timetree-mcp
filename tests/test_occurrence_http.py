@@ -2,11 +2,12 @@ import copy
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from zoneinfo import ZoneInfoNotFoundError
 
 from timetree_mcp.http_reader import HttpResponse, TimeTreeHttpReader, UrllibTransport, _NoMutationRedirect
 from timetree_mcp.server import TimeTreeMcpServer
-from test_occurrence_editor import SimulatedCalendar
+from test_occurrence_editor import SimulatedCalendar, millis
 
 
 class CalendarTransport:
@@ -78,6 +79,85 @@ class OccurrenceHttpTests(unittest.TestCase):
         self.assertEqual(restarted.read("move_occurrence", request), response["structuredContent"])
         self.assertTrue(restarted.read("occurrence_operation_status", {"operation_id": "http-move"})["completed"])
         offline.request.assert_not_called()
+
+    def configure_zone(self, zone, start, end, original):
+        for event in self.transport.calendar.events:
+            event.update(start_timezone=zone, end_timezone=zone,
+                         start_at=millis(start), end_at=millis(end))
+        self.transport.calendar.events[0]["recurrences"] = ["RRULE:FREQ=DAILY;COUNT=30"]
+        self.args["occurrence_start_at"] = original
+
+    def test_multizone_moves_preserve_zone_and_append_original_utc_exclusion(self):
+        cases = [
+            ("Asia/Tokyo", "2030-01-07", "2030-01-08", "+09:00", "+09:00", "20300108T000000Z"),
+            ("Asia/Kolkata", "2030-01-07", "2030-01-08", "+05:30", "+05:30", "20300108T033000Z"),
+            ("America/New_York", "2030-03-09", "2030-03-11", "-05:00", "-04:00", "20300311T130000Z"),
+            ("Europe/London", "2030-03-30", "2030-04-01", "+00:00", "+01:00", "20300401T080000Z"),
+        ]
+        for index, (zone, anchor, original, before_offset, after_offset, exclusion) in enumerate(cases):
+            with self.subTest(zone=zone):
+                self.transport = CalendarTransport()
+                path = self.path.with_name(f"zone-{index}.sqlite3")
+                self.reader = TimeTreeHttpReader(transport=self.transport, base_url="https://example.test",
+                                                 occurrence_journal_path=path)
+                self.reader._authenticated = True
+                self.reader._csrf_token = "synthetic-csrf"
+                self.server = TimeTreeMcpServer(self.reader)
+                self.configure_zone(zone, f"{anchor}T09:00:00{before_offset}",
+                                    f"{anchor}T10:00:00{before_offset}", f"{original}T09:00:00{after_offset}")
+                read = self.call("timetree_get_occurrence_for_edit", self.args)
+                self.assertFalse(read["isError"], read)
+                self.assertEqual(read["structuredContent"]["timezone"], zone)
+                request = {**self.args, "new_start_at": f"{original}T11:00:00{after_offset}",
+                           "expected_revision": read["structuredContent"]["revision"],
+                           "operation_id": f"zone-{index}", "confirm": True}
+                result = self.call("timetree_move_occurrence", request)
+                self.assertFalse(result["isError"], result)
+                self.assertEqual(result["structuredContent"]["timezone"], zone)
+                child = self.transport.calendar.events[-1]
+                self.assertEqual((child["start_timezone"], child["end_timezone"]), (zone, zone))
+                self.assertEqual(child["end_at"] - child["start_at"], 3600000)
+                self.assertEqual(self.transport.calendar.events[0]["recurrences"][-1], "EXDATE:" + exclusion)
+                self.assertEqual((self.transport.calendar.posts, self.transport.calendar.puts), (1, 1))
+
+    def test_invalid_new_zone_times_fail_before_journal_or_calendar_writes(self):
+        self.configure_zone("America/New_York", "2030-03-01T09:00:00-05:00",
+                            "2030-03-01T10:00:00-05:00", "2030-03-02T09:00:00-05:00")
+        read = self.call("timetree_get_occurrence_for_edit", self.args)
+        self.assertFalse(read["isError"], read)
+        for stamp in ("2030-03-02T11:00:00+08:00", "2030-03-10T02:30:00-05:00",
+                      "2030-11-03T01:30:00-04:00", "2030-11-03T01:30:00-05:00",
+                      "2030-03-10T01:30:00-05:00"):
+            with self.subTest(stamp=stamp):
+                result = self.call("timetree_move_occurrence", {
+                    **self.args, "new_start_at": stamp, "expected_revision": read["structuredContent"]["revision"],
+                    "operation_id": "invalid-time", "confirm": True})
+                self.assertTrue(result["isError"], result)
+                self.assertFalse(self.path.exists())
+                self.assertEqual((self.transport.calendar.posts, self.transport.calendar.puts), (0, 0))
+
+    def test_missing_or_cross_timezone_metadata_rejects_preflight(self):
+        for zones in ((None, None), ("Asia/Tokyo", "Asia/Taipei"), ("Invalid/Zone", "Invalid/Zone")):
+            with self.subTest(zones=zones):
+                self.transport.calendar.events[0].update(start_timezone=zones[0], end_timezone=zones[1])
+                result = self.call("timetree_get_occurrence_for_edit", self.args)
+                self.assertTrue(result["isError"], result)
+                self.assertFalse(self.path.exists())
+                self.assertEqual((self.transport.calendar.posts, self.transport.calendar.puts), (0, 0))
+
+    def test_missing_timezone_database_blocks_new_dispatch_but_not_saved_replay(self):
+        request = self.request()
+        with patch("timetree_mcp.occurrence_rules.ZoneInfo", side_effect=ZoneInfoNotFoundError):
+            result = self.call("timetree_move_occurrence", request)
+            self.assertTrue(result["isError"])
+            self.assertEqual(result["structuredContent"]["error"], "occurrence_timezone_data_unavailable")
+        self.assertFalse(self.path.exists())
+        self.assertEqual((self.transport.calendar.posts, self.transport.calendar.puts), (0, 0))
+        completed = self.call("timetree_move_occurrence", request)
+        self.assertFalse(completed["isError"], completed)
+        with patch("timetree_mcp.occurrence_rules.ZoneInfo", side_effect=ZoneInfoNotFoundError), \
+                patch.object(self.transport, "request", side_effect=AssertionError("replay must be offline")):
+            self.assertEqual(self.call("timetree_move_occurrence", request), completed)
 
     def test_partial_or_malformed_sync_never_allows_writes(self):
         invalid = [

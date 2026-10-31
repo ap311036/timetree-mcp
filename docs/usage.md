@@ -10,10 +10,10 @@ Windows caveats, and the exact scope of verification.
 With Node.js 18+ and a separately installed Python 3.10+:
 
 ```bash
-npx --yes timetree-mcp@0.2.4
+npx --yes timetree-mcp@0.3.0
 ```
 
-This pins the current documented release. Check release notes before choosing
+This pins the version documented here. Check release notes before choosing
 a newer version. The wrapper starts the bundled Python stdio server; it does
 not install Python or open an interactive terminal interface. Your MCP client
 should launch the command and communicate over stdin/stdout.
@@ -65,7 +65,8 @@ and absolute Windows paths as described in the [client guide](clients.md#windows
 1. Start with `timetree_status`, then `timetree_list_calendars` to identify the
    target. Reads authenticate automatically when needed.
 2. Use `timetree_list_events` for a bounded date range: `start_date` is inclusive
-   and `end_date` is exclusive. Use returned calendar/event identifiers rather
+   and `end_date` is exclusive, at UTC midnight. These are not the series zone's
+   local-day boundaries. Use returned calendar/event identifiers rather
    than guessing IDs from titles.
 3. Inspect `sync_complete`, `incomplete_calendars`, and `skipped_calendars`.
    Successful retrieval can still be partial; `limit` also bounds the output.
@@ -82,10 +83,14 @@ Calendar and event contents returned by tools are visible to the MCP client
 and may be sent to its model provider. Local credential storage does not mean
 that all calendar data stays on your computer.
 
-The source checkout adds a narrow single-occurrence time move; npm 0.2.4 does
-not include it. Follow the [preflight, confirmation, and durable-journal
+Version 0.3.0 adds a narrow single-occurrence time move in Taipei, Tokyo,
+Kolkata, New York, and London; npm 0.2.4 does not include it. Follow the
+[timezone, preflight, confirmation, and durable-journal
 workflow](recurring-events.md). Occurrence deletion and "this and following"
 changes remain unsupported. Never use general event tools to emulate this scope.
+
+For all 27 tools, event/memo optional fields, comment and label operations,
+member reads, and environment settings, see the [complete tool reference](tools.md).
 
 ## Background monitoring
 

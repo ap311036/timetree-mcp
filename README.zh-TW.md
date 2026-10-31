@@ -2,7 +2,7 @@
 
 **在 MCP 助手中讀取、更新與監控你的 TimeTree 行事曆。**
 
-[English](README.md) · [繁體中文](README.zh-TW.md)
+[English](README.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md)
 
 [![npm](https://img.shields.io/npm/v/timetree-mcp?color=blue)](https://www.npmjs.com/package/timetree-mcp)
 [![CI](https://github.com/ap311036/timetree-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ap311036/timetree-mcp/actions/workflows/ci.yml)
@@ -16,7 +16,7 @@ server，可操作行事曆、行程、備忘錄與留言。它在本機透過 s
 Keychain 或本機密碼檔。
 
 ```bash
-npx --yes timetree-mcp
+npx --yes timetree-mcp@0.3.0
 ```
 
 **即使使用 npm，仍須安裝 Python 3.10+。** npm wrapper 另需 Node.js 18+。
@@ -42,6 +42,8 @@ npx --yes timetree-mcp
 |---|---|
 | 讀取與搜尋 | 行事曆、日期範圍及關鍵字行程查詢、備忘錄、留言、標籤、成員與虛擬成員。 |
 | 寫入確認旗標 | 建立、更新、刪除行程、備忘錄與留言；合併更新標籤名稱及顏色。 |
+| 行程詳細資料 | 非全天／全天行程、筆記、地點、網址、標籤、參與者、提醒、核取清單、虛擬參與者，以及既有檔案 UUID 引用。 |
+| 移動單次重複行程 | 預檢並移動台北、東京、加爾各答、紐約或倫敦時區的每日／每週場次，具嚴格時區驗證與本機持久操作紀錄。 |
 | 認證資料不進入工具參數 | 從本機程序環境、密碼檔或 macOS Keychain 取得認證；session cookie 與 CSRF token 保存在程序記憶體。 |
 | 監控行程變更 | 每 30–3600 秒輪詢，以 MCP notifications 回報新增、修改或移除的行程。 |
 | 輕量執行 | Python runtime 僅使用標準函式庫；npm 負責啟動套件內附的 Python server。 |
@@ -66,6 +68,8 @@ npx --yes timetree-mcp
 - 使用 npm launcher 時，另需 Node.js 18 或更新版本。
 - 能啟動本機 **stdio** MCP server 的 client。
 - Keychain 僅支援 macOS；其他平台可使用密碼檔或環境變數。
+- 單次移動需要 IANA 時區資料庫。Python 使用系統資料庫或選用的 `tzdata` 套件；
+  缺少資料時會拒絕操作，不會退回固定 UTC 偏移。
 
 Codex、Claude Desktop 與 Cursor 的設定範例見
 [client 指南](docs/clients.md)，其中另列各項驗證狀態。
@@ -120,7 +124,7 @@ Codex 搭配密碼檔的設定：
 codex mcp add timetree \
   --env TIMETREE_EMAIL=your-email@example.com \
   --env TIMETREE_PASSWORD_FILE=/absolute/path/to/timetree-password \
-  -- npx --yes timetree-mcp
+  -- npx --yes timetree-mcp@0.3.0
 ```
 
 使用 macOS Keychain 時，省略兩個 `--env` 選項。若已有 `timetree` 設定，先檢查再替換。
@@ -154,22 +158,32 @@ Windows PowerShell 請改用 `.venv\Scripts\Activate.ps1` 啟用虛擬環境。
 | 備忘錄 | `timetree_create_memo`、`timetree_update_memo`、`timetree_delete_memo` |
 | 留言 | `timetree_add_event_comment`、`timetree_update_event_comment`、`timetree_delete_event_comment` |
 | 標籤 | `timetree_update_calendar_labels` |
-| 單次移動（原始碼版） | `timetree_get_occurrence_for_edit`、`timetree_move_occurrence`、`timetree_occurrence_operation_status` |
+| 單次移動 | `timetree_get_occurrence_for_edit`、`timetree_move_occurrence`、`timetree_occurrence_operation_status` |
 | 監控 | `timetree_start_monitor`、`timetree_monitor_status`、`timetree_stop_monitor` |
 
 所有行程、備忘錄、留言與標籤寫入都必須傳入 `confirm: true`。
-一般行程時間支援 ISO-8601 字串或 Unix milliseconds；單次移動須使用指南指定的精確 `+08:00` 格式。
+一般行程時間支援 ISO-8601 字串或 Unix milliseconds；單次移動須精確到秒，且明確指定與系列時區相符的數字 UTC 偏移。
 更新或刪除前，先列出行事曆並核對
 讀取結果中的行程 ID。標籤採合併更新，保留未指定的標籤。
 
-**原始碼版新功能（npm 0.2.4 尚未包含）：**可移動台北時區、非全天、每日／每週
-重複行程的單次場次，保留原時長及支援的資料欄位。預檢會確認原場次時間與父子事件連結；
+**0.3.0 新功能（0.2.4 未包含）：**可移動 `Asia/Taipei`、`Asia/Tokyo`、`Asia/Kolkata`、
+`America/New_York` 或 `Europe/London` 時區、非全天、每日／每週重複行程的單次場次，
+保留原時長及支援的資料欄位。預檢會確認原場次時間與父子事件連結；
 寫入須帶 `confirm: true`、預檢 revision 與固定操作 ID。本機持久紀錄會阻擋中斷後重複送出，
 但建立子事件及排除原場次仍是兩個非原子寫入。使用前請讀[支援範圍與恢復限制](docs/recurring-events.md)。
 
+起訖須使用相同且受支援的 IANA 時區，日期須在 1980 年起，時長最多 24 小時。
+缺少時區資料、偏移不符、重複或不存在的本地時間，以及事件區間跨越 UTC 偏移變更，
+都會拒絕操作。可安全判定的本地時間重複規則可跨越夏令時間變更；紐約／倫敦最多
+驗證距系列起點 3660 個本地日，遇到中間場次無法安全判定也會拒絕。
+預檢與成功結果都回傳系列 `timezone`。這些規則以模擬資料測試；
+本次未在真實行事曆執行多時區寫入，也未進行 client UI 完整實測。
+
 尚未提供單次刪除或「這次及之後」修改。不要用一般行程更新／刪除代替單次操作。
 `timetree_list_events` 仍不展開重複規則，因此日期範圍查詢可能漏掉後續場次。
-成員邀請及移除端點仍未驗證。
+一般行程工具可傳送原始 recurrence 陣列，但不保證任意重複規則或編輯範圍都正確受支援。
+未提供檔案上傳、行事曆管理或成員邀請／移除工具。
+全部參數分類、選用欄位、環境設定及未支援操作見[完整 27 項工具參考](docs/tools.md)。
 
 ### 監控限制
 
@@ -177,6 +191,7 @@ Windows PowerShell 請改用 `.venv\Scripts\Activate.ps1` 啟用虛擬環境。
 此功能採輪詢，不是即時推播，也不會寄送 email 或手機通知。
 MCP 程序關閉後監控便會停止，不是持續運作的雲端服務；重新啟動程序後須再次啟動監控。
 使用 `timetree_monitor_status` 查看上次輪詢、錯誤與通知計數。
+部分同步結果可能看起來像行程被移除，請以重新讀取確認疑似刪除。
 
 ### 讀取完整性
 
@@ -184,6 +199,10 @@ MCP 程序關閉後監控便會停止，不是持續運作的雲端服務；重�
 重複或無效游標，以及 25 頁上限，會在 `incomplete_calendars` 回報，並保留已讀取的行程。
 上游 `-425` 錯誤會保留 `error_code`；未取得任何行程的失敗行事曆列於
 `skipped_calendars`，整體 `sync_complete` 為 false。
+
+行程日期範圍以 UTC 午夜為界，包含 `start_date`、不包含 `end_date`，並非事件時區的本地日界線。
+關鍵字搜尋涵蓋標題、筆記、地點、行事曆名稱／ID，以及回傳的標籤名稱。
+備忘錄另有 `updated_after` 篩選，但目前不回傳同步完整性欄位。
 
 行事曆列表與預設行程同步僅處理啟用中的行事曆：`deactivated_at` 缺少、`null` 或數字 `0`
 視為啟用，非零數字視為停用。無效型別會明確報錯；明確指定停用行事曆也會在同步前被拒絕。
@@ -195,6 +214,7 @@ MCP 程序關閉後監控便會停止，不是持續運作的雲端服務；重�
 - [Client 設定](docs/clients.md)：設定範例與驗證狀態。
 - [示範](docs/demo.md)：可重現的操作及驗證界線。
 - [Usage guide](docs/usage.md)：本機開發與監控。
+- [完整工具參考](docs/tools.md)：全部 27 項工具、支援欄位、預設值與環境設定。
 - [Agent guide](docs/agent-guide.md)：工具流程與錯誤處理。
 - [Companion skill](skills/timetree-mcp/SKILL.md)：供支援 skills 的 agent 使用的操作規範。
 - [Publishing](docs/publishing.md)：npm、版本檢查、MCP Registry metadata 與 GitHub Actions。

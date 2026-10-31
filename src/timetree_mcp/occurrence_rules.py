@@ -1,8 +1,9 @@
 """Pure, fail-closed rules for moving one generated TimeTree occurrence.
 
-Only timed Asia/Taipei events on or after 1980-01-01 are supported. Taipei has
-used UTC+08:00 throughout this range; historical daylight-saving rules are out
-of scope. This module performs no network, credential, or filesystem access.
+Only timed events in the five explicitly supported IANA zones on or after
+1980-01-01 local time are supported. ZoneInfo supplies offset rules; missing
+timezone data and ambiguous local times fail closed. This module performs no
+network or credential access; ZoneInfo may read the installed timezone database.
 The child payload deliberately omits recurrences, as the web client does when
 parent_id is present. Callers must journal and verify the two non-atomic writes.
 """
@@ -14,13 +15,17 @@ import json
 import math
 import re
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 TAIPEI = timezone(timedelta(hours=8), "Asia/Taipei")
 MIN_SUPPORTED_DATE = "1980-01-01"
-MIN_SUPPORTED_MS = 315504000000
+MIN_SUPPORTED_MS = 315446400000  # A permissive UTC bound; local dates are checked separately.
+SUPPORTED_TIMEZONES = frozenset(("Asia/Taipei", "Asia/Tokyo", "Asia/Kolkata", "America/New_York", "Europe/London"))
+DST_TIMEZONES = frozenset(("America/New_York", "Europe/London"))
+MAX_TIMEZONE_VALIDATION_DAYS = 3660
 DAY_MS = 86400000
 MAX_SAFE_INTEGER = (1 << 53) - 1
 MAX_RULE_LINES = 100
@@ -28,7 +33,8 @@ MAX_RULE_LENGTH = 10000
 MAX_RULE_NUMBER = 100000
 IDENTIFIER = re.compile(r"[A-Za-z0-9_-]{1,160}")
 TAIPEI_INPUT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:00")
-RAW_ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})")
+OCCURRENCE_INPUT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-](?:[01]\d|2[0-3]):[0-5]\d")
+RAW_ISO = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)")
 WEEKDAYS = {name: index for index, name in enumerate(("MO", "TU", "WE", "TH", "FR", "SA", "SU"))}
 RAW_FIELDS = frozenset((
     "id", "primary_id", "uuid", "calendar_id", "category", "type", "author_id", "author_type",
@@ -90,7 +96,7 @@ def _datetime_ms(value: datetime) -> int:
     return delta.days * DAY_MS + delta.seconds * 1000 + delta.microseconds // 1000
 
 
-def _ms_datetime(value: int, zone: timezone = TAIPEI) -> datetime:
+def _ms_datetime(value: int, zone: tzinfo = timezone.utc) -> datetime:
     try:
         return (datetime(1970, 1, 1, tzinfo=timezone.utc) + timedelta(milliseconds=value)).astimezone(zone)
     except (OverflowError, ValueError):
@@ -111,11 +117,81 @@ def parse_taipei(value: Any) -> int:
     """Parse the public occurrence input: exact seconds with an explicit +08:00."""
     if not isinstance(value, str) or not TAIPEI_INPUT.fullmatch(value):
         _fail("invalid_occurrence_time")
+    return parse_occurrence_time(value)
+
+
+def _parent_zone(parent: Any) -> ZoneInfo:
+    if not isinstance(parent, dict):
+        _fail()
+    name = parent.get("start_timezone")
+    if not isinstance(name, str) or name not in SUPPORTED_TIMEZONES:
+        _fail("unsupported_occurrence_timezone")
+    if parent.get("end_timezone") != name:
+        _fail("occurrence_timezone_mismatch")
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError, OSError):
+        _fail("occurrence_timezone_data_unavailable")
+
+
+def _unique_local(wall: datetime, zone: ZoneInfo) -> datetime:
+    """Resolve a wall time only when both fold candidates identify one instant."""
+    if wall.date() < datetime(1980, 1, 1).date():
+        _fail("occurrence_date_out_of_range")
+    instants: dict[int, datetime] = {}
+    try:
+        for fold in (0, 1):
+            candidate = wall.replace(tzinfo=zone, fold=fold)
+            utc = candidate.astimezone(timezone.utc)
+            if utc.astimezone(zone).replace(tzinfo=None) == wall:
+                instants[_datetime_ms(utc)] = candidate
+    except (OverflowError, ValueError):
+        _fail("occurrence_date_out_of_range")
+    if not instants:
+        _fail("occurrence_local_time_nonexistent")
+    if len(instants) != 1:
+        _fail("occurrence_local_time_ambiguous")
+    return next(iter(instants.values()))
+
+
+def _safe_instant(at_ms: int, zone: ZoneInfo) -> datetime:
+    local = _ms_datetime(_exact_ms(at_ms), zone)
+    _unique_local(local.replace(tzinfo=None), zone)
+    return local
+
+
+def _safe_interval(start_ms: int, duration: int, zone: ZoneInfo) -> None:
+    start = _safe_instant(start_ms, zone)
+    end = _safe_instant(start_ms + duration, zone)
+    # Supported DST zones have at most one transition in an interval <=24h.
+    # Rejecting offset changes preserves both the wall and elapsed duration.
+    if start.utcoffset() != end.utcoffset():
+        _fail("occurrence_interval_crosses_offset_transition")
+
+
+def parse_occurrence_time(value: Any, parent: Any = None) -> int:
+    """Parse explicit numeric offsets and, with a parent, verify its local zone.
+
+    Lexical validation requires no timezone database, allowing durable operation
+    replay without network or zone lookup. New dispatches must validate with the
+    parent before building any write payload.
+    """
+    if not isinstance(value, str) or not OCCURRENCE_INPUT.fullmatch(value) or value.endswith("-00:00"):
+        _fail("invalid_occurrence_time")
     try:
         parsed = datetime.fromisoformat(value)
-    except ValueError:
+        if parsed.date() < datetime(1980, 1, 1).date():
+            _fail("occurrence_date_out_of_range")
+        result = _exact_ms(_datetime_ms(parsed))
+    except (OverflowError, ValueError) as exc:
+        if str(exc) == "occurrence_date_out_of_range":
+            raise
         _fail("invalid_occurrence_time")
-    return _exact_ms(_datetime_ms(parsed))
+    if parent is not None:
+        local = _unique_local(parsed.replace(tzinfo=None), _parent_zone(parent))
+        if local.utcoffset() != parsed.utcoffset():
+            _fail("occurrence_timezone_offset_mismatch")
+    return result
 
 
 def _raw_instant(value: Any) -> int:
@@ -127,13 +203,17 @@ def _raw_instant(value: Any) -> int:
             _fail("invalid_occurrence_time")
         return _raw_instant(int(value))
     elif isinstance(value, str) and RAW_ISO.fullmatch(value):
+        if value.endswith("-00:00"):
+            _fail("invalid_occurrence_time")
         try:
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            result = _datetime_ms(parsed)
         except ValueError:
             _fail("invalid_occurrence_time")
+        except OverflowError:
+            _fail("occurrence_date_out_of_range")
         if parsed.microsecond:
             _fail("invalid_occurrence_time")
-        result = _datetime_ms(parsed)
     else:
         _fail("invalid_occurrence_time")
     return _exact_ms(result)
@@ -228,14 +308,14 @@ def _build_payload(parent: Any, new_start_ms: Any) -> dict[str, Any]:
         _fail()
     if not isinstance(parent.get("title"), str) or not parent["title"].strip():
         _fail()
-    if parent.get("start_timezone") != "Asia/Taipei" or parent.get("end_timezone") != "Asia/Taipei":
-        _fail()
+    zone = _parent_zone(parent)
     start = _raw_instant(parent.get("start_at"))
     duration = _raw_instant(parent.get("end_at")) - start
     new_start_ms = _exact_ms(new_start_ms)
     if not 0 < duration <= DAY_MS or duration % 1000:
         _fail("unsupported_occurrence_duration")
-    _exact_ms(new_start_ms + duration)
+    _safe_interval(start, duration, zone)
+    _safe_interval(new_start_ms, duration, zone)
     for key in ("attendees", "alerts"):
         if not isinstance(parent.get(key), list) or any(not _integer(item) for item in parent[key]):
             _fail()
@@ -243,7 +323,7 @@ def _build_payload(parent: Any, new_start_ms: Any) -> dict[str, Any]:
         _fail()
     payload = {
         "title": parent["title"], "all_day": False, "start_at": new_start_ms,
-        "end_at": new_start_ms + duration, "start_timezone": "Asia/Taipei", "end_timezone": "Asia/Taipei",
+        "end_at": new_start_ms + duration, "start_timezone": zone.key, "end_timezone": zone.key,
         "label_id": parent["label_id"], "category": 1, "attendees": list(parent["attendees"]),
         "alerts": list(parent["alerts"]), "parent_id": parent["id"], "silent": True,
         "attachment": _attachment(parent.get("attachment")),
@@ -267,7 +347,7 @@ def _build_payload(parent: Any, new_start_ms: Any) -> dict[str, Any]:
     return payload
 
 
-def _basic_date(value: str, *, utc: bool) -> int:
+def _basic_date(value: str, *, utc: bool, zone: ZoneInfo | None = None) -> int:
     pattern = r"\d{8}T\d{6}Z" if utc else r"\d{8}T\d{6}"
     if not re.fullmatch(pattern, value):
         _fail("unsupported_recurrence_date")
@@ -275,10 +355,17 @@ def _basic_date(value: str, *, utc: bool) -> int:
         parsed = datetime.strptime(value, "%Y%m%dT%H%M%SZ" if utc else "%Y%m%dT%H%M%S")
     except ValueError:
         _fail("invalid_recurrence_date")
-    return _exact_ms(_datetime_ms(parsed.replace(tzinfo=timezone.utc if utc else TAIPEI)))
+    if utc:
+        resolved = parsed.replace(tzinfo=timezone.utc)
+    elif zone is not None:
+        resolved = _unique_local(parsed, zone)
+    else:
+        _fail("unsupported_occurrence_timezone")
+    return _exact_ms(_datetime_ms(resolved))
 
 
 def _parse_rules(parent: dict[str, Any]) -> tuple[dict[str, Any], set[int]]:
+    zone = _parent_zone(parent)
     lines = parent.get("recurrences")
     if not isinstance(lines, list) or not lines or len(lines) > MAX_RULE_LINES:
         _fail("unsupported_recurrence_shape")
@@ -299,10 +386,12 @@ def _parse_rules(parent: dict[str, Any]) -> tuple[dict[str, Any], set[int]]:
             match = re.fullmatch(r"EXDATE(?:;TZID=([^:]+))?:(.+)", line)
             if not match:
                 _fail("unsupported_recurrence_property")
-            if match[1] is not None and match[1] != "Asia/Taipei":
+            if match[1] is not None and match[1] != zone.key:
                 _fail("recurrence_date_timezone_mismatch")
             for item in match[2].split(","):
-                exclusions.add(_basic_date(item, utc=item.endswith("Z")))
+                if match[1] is not None and item.endswith("Z"):
+                    _fail("recurrence_date_timezone_mismatch")
+                exclusions.add(_basic_date(item, utc=item.endswith("Z"), zone=zone))
     if len(rules) != 1:
         _fail("unsupported_recurrence_generator")
     fields = rules[0]
@@ -325,7 +414,7 @@ def _parse_rules(parent: dict[str, Any]) -> tuple[dict[str, Any], set[int]]:
     if "UNTIL" in fields:
         until = fields["UNTIL"]
         if re.fullmatch(r"\d{8}", until):
-            parsed["until"] = _basic_date(until + "T235959", utc=False)
+            parsed["until"] = _basic_date(until + "T235959", utc=False, zone=zone)
         else:
             parsed["until"] = _basic_date(until, utc=True)
     if frequency == "WEEKLY":
@@ -347,22 +436,12 @@ def validate_parent(parent: Any) -> None:
     _parse_rules(parent)
 
 
-def assert_occurrence(parent: dict[str, Any], at_ms: Any) -> None:
-    """Validate exact membership without expanding an unbounded recurrence."""
-    validate_parent(parent)
-    at_ms = _exact_ms(at_ms)
-    start_ms = _raw_instant(parent["start_at"])
-    rule, exclusions = _parse_rules(parent)
-    if at_ms < start_ms or at_ms in exclusions or (rule["until"] is not None and at_ms > rule["until"]):
-        _fail("occurrence_missing_or_excluded")
-    start = _ms_datetime(start_ms)
-    at = _ms_datetime(at_ms)
-    if start.time() != at.time():
-        _fail("occurrence_missing_or_excluded")
+def _ordinal(rule: dict[str, Any], start: datetime, at: datetime) -> int | None:
+    """Return the generated local date's ordinal before exclusions, if present."""
     if rule["frequency"] == "DAILY":
         days = (at.date() - start.date()).days
         if days % rule["interval"]:
-            _fail("occurrence_missing_or_excluded")
+            return None
         ordinal = days // rule["interval"] + 1
     else:
         week_start = rule["week_start"]
@@ -373,15 +452,54 @@ def assert_occurrence(parent: dict[str, Any], at_ms: Any) -> None:
         weekdays = rule["weekdays"] or [start.weekday()]
         offsets = sorted((day - week_start) % 7 for day in weekdays)
         if week_number % rule["interval"] or day_offset not in offsets:
-            _fail("occurrence_missing_or_excluded")
+            return None
         if week_number == 0:
             ordinal = sum(first_offset <= day <= day_offset for day in offsets)
         else:
             first_count = sum(day >= first_offset for day in offsets)
             full_weeks = week_number // rule["interval"] - 1
             ordinal = first_count + full_weeks * len(offsets) + sum(day <= day_offset for day in offsets)
+    return ordinal
+
+
+def _assert_safe_history(rule: dict[str, Any], start: datetime, at: datetime,
+                         duration: int, zone: ZoneInfo) -> None:
+    if zone.key not in DST_TIMEZONES:
+        return
+    days = (at.date() - start.date()).days
+    if days > MAX_TIMEZONE_VALIDATION_DAYS:
+        _fail("occurrence_timezone_validation_limit")
+    # Never guess how TimeTree counts or normalizes a gap/fold recurrence.
+    # Check only generated dates, including excluded dates, so COUNT cannot
+    # silently shift. The explicit bound keeps work independent of long rules.
+    for offset in range(days + 1):
+        wall = datetime.combine(start.date() + timedelta(days=offset), start.time())
+        if _ordinal(rule, start, wall) is not None:
+            candidate = _unique_local(wall, zone)
+            _safe_interval(_datetime_ms(candidate), duration, zone)
+
+
+def assert_occurrence(parent: dict[str, Any], at_ms: Any) -> None:
+    """Validate membership and bounded DST history without guessing normalization."""
+    validate_parent(parent)
+    at_ms = _exact_ms(at_ms)
+    start_ms = _raw_instant(parent["start_at"])
+    rule, exclusions = _parse_rules(parent)
+    if at_ms < start_ms or at_ms in exclusions or (rule["until"] is not None and at_ms > rule["until"]):
+        _fail("occurrence_missing_or_excluded")
+    zone = _parent_zone(parent)
+    start = _safe_instant(start_ms, zone)
+    at = _safe_instant(at_ms, zone)
+    if start.time() != at.time():
+        _fail("occurrence_missing_or_excluded")
+    ordinal = _ordinal(rule, start, at)
+    if ordinal is None:
+        _fail("occurrence_missing_or_excluded")
     if rule["count"] is not None and ordinal > rule["count"]:
         _fail("occurrence_missing_or_excluded")
+    duration = _raw_instant(parent["end_at"]) - start_ms
+    _safe_interval(at_ms, duration, zone)
+    _assert_safe_history(rule, start, at, duration, zone)
 
 
 def child_payload(parent: dict[str, Any], new_start_ms: Any) -> dict[str, Any]:

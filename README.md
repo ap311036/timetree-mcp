@@ -2,7 +2,7 @@
 
 **Read, update, and monitor your TimeTree calendars from an MCP assistant.**
 
-[English](README.md) · [繁體中文](README.zh-TW.md)
+[English](README.md) · [繁體中文](README.zh-TW.md) · [日本語](README.ja.md)
 
 [![npm](https://img.shields.io/npm/v/timetree-mcp?color=blue)](https://www.npmjs.com/package/timetree-mcp)
 [![CI](https://github.com/ap311036/timetree-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/ap311036/timetree-mcp/actions/workflows/ci.yml)
@@ -16,7 +16,7 @@ connects directly to TimeTree over HTTPS, and requires `confirm: true` for
 calendar writes. Keep credentials in macOS Keychain or a local password file.
 
 ```bash
-npx --yes timetree-mcp
+npx --yes timetree-mcp@0.3.0
 ```
 
 **Python 3.10+ is required even when using npm.** The wrapper also requires
@@ -42,6 +42,8 @@ These are example prompts, not captured TimeTree responses. See the
 |---|---|
 | Read and search | Calendars, date-range and keyword event queries, memos, comments, labels, members, and virtual members. |
 | Write with a confirmation flag | Create, update, and delete events, memos, and comments; merge-update label names and colors. |
+| Event details | Timed/all-day events, notes, locations, URLs, labels, attendees, alerts, checklists, virtual attendees, and existing file UUID references. |
+| Move one recurring occurrence | Preflight and move a supported DAILY/WEEKLY occurrence in Taipei, Tokyo, Kolkata, New York, or London, with strict timezone checks and a durable operation journal. |
 | Keep secrets out of tool arguments | Credentials come from the local process environment, a password file, or macOS Keychain. Session cookies and CSRF tokens remain in process memory. |
 | Monitor event changes | Poll every 30–3600 seconds and emit MCP notifications for added, updated, or removed events. |
 | Run with few dependencies | Python standard-library runtime; npm is a launcher for the included Python server. |
@@ -68,6 +70,8 @@ credential storage does not make calendar queries local-only.
 - Node.js 18 or newer for the npm launcher.
 - A client that can launch a local **stdio** MCP server.
 - macOS for Keychain support; password files or environment variables are available on other platforms.
+- An IANA timezone database for occurrence moves. Python uses the system database
+  or the optional `tzdata` package; missing data causes rejection, not a fixed-offset fallback.
 
 Codex, Claude Desktop, and Cursor setup examples are in the
 [client guide](docs/clients.md), with verification status stated separately.
@@ -124,7 +128,7 @@ For Codex with a password file:
 codex mcp add timetree \
   --env TIMETREE_EMAIL=your-email@example.com \
   --env TIMETREE_PASSWORD_FILE=/absolute/path/to/timetree-password \
-  -- npx --yes timetree-mcp
+  -- npx --yes timetree-mcp@0.3.0
 ```
 
 For macOS Keychain, omit both `--env` options. If a `timetree` entry already exists,
@@ -160,27 +164,40 @@ without installation using `python3 src/timetree_mcp/server.py`.
 | Memos | `timetree_create_memo`, `timetree_update_memo`, `timetree_delete_memo` |
 | Comments | `timetree_add_event_comment`, `timetree_update_event_comment`, `timetree_delete_event_comment` |
 | Labels | `timetree_update_calendar_labels` |
-| Occurrence moves (source checkout) | `timetree_get_occurrence_for_edit`, `timetree_move_occurrence`, `timetree_occurrence_operation_status` |
+| Occurrence moves | `timetree_get_occurrence_for_edit`, `timetree_move_occurrence`, `timetree_occurrence_operation_status` |
 | Monitoring | `timetree_start_monitor`, `timetree_monitor_status`, `timetree_stop_monitor` |
 
 All event, memo, comment, and label writes require `confirm: true`. General event
 time inputs accept ISO-8601 strings or Unix milliseconds; occurrence moves require
-the exact `+08:00` timestamp format described below. List calendars and inspect returned
+whole seconds and an explicit numeric UTC offset matching the series timezone. List calendars and inspect returned
 event identifiers before an update or deletion. Omitted labels are preserved by
 label merge updates.
 
-**New in the source checkout (not yet in npm 0.2.4):** move one timed
-`Asia/Taipei` DAILY/WEEKLY occurrence, preserving its duration and supported
+**New in 0.3.0 (not included in 0.2.4):** move one timed DAILY/WEEKLY occurrence in
+`Asia/Taipei`, `Asia/Tokyo`, `Asia/Kolkata`, `America/New_York`, or `Europe/London`, preserving its duration and supported
 metadata. Preflight checks the exact original instant and observed parent/child
 identity. The move requires `confirm: true`, the returned revision, and a stable
 operation ID. A durable local journal blocks duplicate dispatch after interruption;
 the child creation and parent exclusion are still two non-atomic writes.
 See the [supported scope and recovery limits](docs/recurring-events.md) before use.
 
+Start and end must use the same supported IANA zone, dates must be from 1980
+onward, and duration must be at most 24 hours. Missing timezone data, mismatched
+offsets, ambiguous/nonexistent local times, and intervals crossing an offset
+change are rejected. Safe local wall-clock recurrences can span DST changes;
+New York/London validation checks at most 3660 local days from the series anchor
+and rejects unsafe intervening occurrences. Preflight and success return the
+series `timezone`. Synthetic tests cover these rules; no live multi-timezone
+calendar writes or client UI round trips were performed for this feature.
+
 Occurrence deletion and "this and following" edits are not provided. Do not use
 a general event update/delete as a substitute for single-occurrence scope.
 `timetree_list_events` still does not expand recurrence rules, so a date-range
-query can miss later occurrences. Member invitation/removal remains unverified.
+query can miss later occurrences. General event tools accept raw recurrence
+arrays without promising support for arbitrary recurrence rules or edit scopes.
+There are no file-upload, calendar-management, or member invitation/removal tools.
+See the [complete 27-tool reference](docs/tools.md) for every argument group,
+optional field, environment setting, and unsupported operation.
 
 ### Monitoring limitations
 
@@ -190,6 +207,7 @@ is polling, not instant push, and does not send email or phone notifications.
 Monitoring stops when the MCP process exits and does not run as a persistent
 cloud service. Restarting the process requires starting monitoring again.
 Use `timetree_monitor_status` to inspect the last poll, errors, and notification count.
+Partial snapshots can appear as removals; verify apparent deletions with a fresh read.
 
 ### Read completeness
 
@@ -199,6 +217,12 @@ invalid cursors and the 25-page cap are reported in `incomplete_calendars`, with
 already-read events preserved. Upstream `-425` errors preserve `error_code`;
 failed calendars with no retrieved events appear in `skipped_calendars` and make
 `sync_complete` false.
+
+Event date-range boundaries are UTC midnight, with an inclusive `start_date`
+and exclusive `end_date`; they are not local-day boundaries in the event's zone.
+Keyword search covers titles, notes, locations, calendar names/IDs, and returned
+label names. Memo reads have a separate `updated_after` filter but currently
+do not expose synchronization completeness fields.
 
 Calendar listing and default event sync include active calendars only:
 `deactivated_at` missing, `null`, or numeric `0` means active; nonzero numbers mean
@@ -212,6 +236,7 @@ schedule or interpreting apparent removals.
 - [Client setup](docs/clients.md): configuration examples and validation status.
 - [Demo](docs/demo.md): reproducible behavior and verification boundaries.
 - [Usage guide](docs/usage.md): local development and monitoring.
+- [Complete tool reference](docs/tools.md): all 27 tools, supported fields, defaults, and configuration.
 - [Agent guide](docs/agent-guide.md): tool workflow and error handling.
 - [Companion skill](skills/timetree-mcp/SKILL.md): operating guidance for agents that support skills.
 - [Publishing](docs/publishing.md): npm, version checks, MCP Registry metadata, and GitHub Actions.

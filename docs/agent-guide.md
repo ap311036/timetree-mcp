@@ -7,7 +7,7 @@ Use this guide when connecting an assistant or coding agent to TimeTree MCP.
 The published NPM wrapper starts the stdio MCP server:
 
 ```bash
-npx --yes timetree-mcp
+npx --yes timetree-mcp@0.3.0
 ```
 
 For normal server launches, email comes from `TIMETREE_EMAIL`, then macOS
@@ -51,21 +51,25 @@ obtain that approval. Every write tool rejects calls without `confirm: true`.
 This includes event, memo, comment, and label changes. Deletion is irreversible, so require a
 separate explicit user confirmation immediately before the call.
 
-## Single-occurrence moves (source checkout)
+## Single-occurrence moves (0.3.0)
 
 Use `timetree_get_occurrence_for_edit` for a known series UUID and exact original
 `occurrence_start_at`. Proceed only if `editable` is true, explain the original
 and proposed times, and obtain approval. Call `timetree_move_occurrence` with
 that revision, the desired start, a stable `operation_id`, and `confirm: true`.
 It preserves duration and supported metadata; narrow rule/identity checks can
-reject a series. See [the full supported scope](recurring-events.md).
+reject a series. Supported zones are Taipei, Tokyo, Kolkata, New York, and
+London, with the same IANA zone at both ends. Include seconds and a numeric
+offset matching that zone and date. Inspect the returned `timezone`; never
+silently correct a DST ambiguity or offset mismatch. See [the full supported
+scope and timezone requirements](recurring-events.md).
 
 After interruption, inspect `timetree_occurrence_operation_status` using the
 same operation ID. This is a local record, not a live calendar verification.
 Never retry uncertainty with another ID, delete/change the journal, or use raw
 event tools to roll back. Two writes are not atomic and a partial edit can
 remain; this version has no automatic resume or unlock. Do not run write tools
-during automatic monitoring. The published npm 0.2.4 does not have these tools.
+during automatic monitoring. npm 0.2.4 does not have these tools.
 
 ## Monitoring
 
@@ -89,6 +93,7 @@ This is not a hosted push service.
 ## Client setup and limits
 
 See [client configurations and validation status](clients.md), the
-[reproducible offline demo](demo.md), and [recurring-event limitations](recurring-events.md).
+[complete 27-tool reference](tools.md), [reproducible offline demo](demo.md),
+and [recurring-event limitations](recurring-events.md).
 Event content returned by tools is visible to the MCP client and may be sent to
 its model provider; keeping credentials local does not keep tool results local.

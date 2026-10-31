@@ -38,7 +38,7 @@ SUPPORTED_PROTOCOL_VERSIONS = (
     "2026-07-28",
 )
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
-SERVER_VERSION = "0.2.4"
+SERVER_VERSION = "0.3.0"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 READ_TOOLS = {
@@ -303,10 +303,10 @@ class TimeTreeMcpServer:
         occurrence = {
             "calendar_id": {"type": "string", "pattern": "^[0-9]{1,40}$"},
             "event_uuid": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,160}$"},
-            "occurrence_start_at": {"type": "string", "description": "Exact ORIGINAL occurrence start, YYYY-MM-DDTHH:MM:SS+08:00; not the desired new time."},
+            "occurrence_start_at": {"type": "string", "description": "Exact ORIGINAL local occurrence start, YYYY-MM-DDTHH:MM:SS±HH:MM. Numeric UTC offset must match the series IANA timezone; ambiguous/nonexistent local times are rejected."},
         }
         occurrence_move = {**occurrence,
-            "new_start_at": {"type": "string", "description": "Desired Asia/Taipei time, YYYY-MM-DDTHH:MM:SS+08:00. Original duration is preserved."},
+            "new_start_at": {"type": "string", "description": "Desired local start, YYYY-MM-DDTHH:MM:SS±HH:MM, in the same IANA timezone as the series. Numeric offset must match. Duration is preserved; DST-ambiguous times and intervals crossing an offset change are rejected."},
             "expected_revision": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
             "operation_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,160}$", "description": "Unique intent ID. Reuse the exact request to inspect its saved result; never use a new ID to retry uncertainty."},
             "confirm": CONFIRM_SCHEMA,
@@ -326,7 +326,7 @@ class TimeTreeMcpServer:
             {"name": "timetree_list_calendars", "description": "Read the calendars available in the authenticated TimeTree account.", "inputSchema": _object_schema({})},
             {"name": "timetree_list_events", "description": "Read TimeTree events overlapping a date range. This tool is read-only.", "inputSchema": _object_schema({"start_date": {"type": "string", "description": "Inclusive YYYY-MM-DD date."}, "end_date": {"type": "string", "description": "Exclusive YYYY-MM-DD date."}, "calendar_id": ID_SCHEMA, "query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}})},
             {"name": "timetree_status", "description": "Read the current direct HTTPS TimeTree authentication status.", "inputSchema": _object_schema({})},
-            {"name": "timetree_get_occurrence_for_edit", "description": "Read and validate one timed Asia/Taipei DAILY/WEEKLY occurrence before moving it. Returns a calendar revision; unsupported metadata or unverified parent links are rejected. No calendar writes.", "inputSchema": _object_schema(occurrence, list(occurrence))},
+            {"name": "timetree_get_occurrence_for_edit", "description": "Read and validate one timed DAILY/WEEKLY occurrence in Asia/Taipei, Asia/Tokyo, Asia/Kolkata, America/New_York or Europe/London. Start/end timezones must match. Returns a calendar revision and timezone; unsafe DST/metadata is rejected and unverified parent links mark it uneditable. No calendar writes.", "inputSchema": _object_schema(occurrence, list(occurrence))},
             {"name": "timetree_move_occurrence", "description": "Move ONLY one preflighted occurrence, preserving duration/metadata. Requires confirm=true, revision and operation_id. TWO NON-ATOMIC writes: create child then exclude original. Partial/uncertain operations remain durably blocked; never retry with a new ID or delete/rollback automatically.", "inputSchema": _object_schema(occurrence_move, list(occurrence_move))},
             {"name": "timetree_occurrence_operation_status", "description": "Read the local occurrence journal by operation_id, including the last dispatch phase and known child UUID. Does not query TimeTree, resume, retry, or unlock an uncertain operation.", "inputSchema": _object_schema({"operation_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,160}$"}}, ["operation_id"])},
             {"name": "timetree_login", "description": "Login to TimeTree over direct HTTPS using TIMETREE_EMAIL and TIMETREE_PASSWORD from the MCP environment; no browser is used.", "inputSchema": _object_schema({})},

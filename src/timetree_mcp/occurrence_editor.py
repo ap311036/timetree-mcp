@@ -12,7 +12,7 @@ from typing import Any, Callable
 
 from .occurrence_rules import (
     assert_occurrence, canonical, child_payload, corroborated_children, digest,
-    excluded_rules, parse_taipei, validate_parent, verify_child, verify_parent,
+    excluded_rules, parse_occurrence_time, validate_parent, verify_child, verify_parent,
 )
 from .operations import require_confirmation
 
@@ -38,9 +38,9 @@ def validate_arguments(arguments: dict[str, Any], *, write: bool = False) -> Non
     if not isinstance(cid, str) or not re.fullmatch(r"[0-9]{1,40}", cid):
         raise ValueError("invalid_occurrence_calendar_id")
     _identifier(arguments["event_uuid"])
-    parse_taipei(arguments["occurrence_start_at"])
+    parse_occurrence_time(arguments["occurrence_start_at"])
     if write:
-        parse_taipei(arguments["new_start_at"])
+        parse_occurrence_time(arguments["new_start_at"])
         _identifier(arguments["operation_id"])
         revision = arguments["expected_revision"]
         if not isinstance(revision, str) or not re.fullmatch(r"[a-f0-9]{64}", revision):
@@ -91,13 +91,13 @@ class OccurrenceEditor:
             raise ValueError("event_missing_or_ambiguous")
         parent = matches[0]
         validate_parent(parent)
-        assert_occurrence(parent, parse_taipei(arguments["occurrence_start_at"]))
+        assert_occurrence(parent, parse_occurrence_time(arguments["occurrence_start_at"], parent))
         return parent, events, digest(events)
 
     def preflight(self, arguments: dict[str, Any]) -> dict[str, Any]:
         validate_arguments(arguments)
         parent, events, revision = self._context(arguments)
-        at = parse_taipei(arguments["occurrence_start_at"])
+        at = parse_occurrence_time(arguments["occurrence_start_at"], parent)
         payload = child_payload(parent, at)
         editable = corroborated_children(parent, events)
         return {
@@ -105,6 +105,7 @@ class OccurrenceEditor:
             "edit_scope": "single_generated_occurrence",
             "calendar_id": arguments["calendar_id"], "event_uuid": parent["uuid"],
             "title": parent["title"], "occurrence_start_at": arguments["occurrence_start_at"],
+            "timezone": parent["start_timezone"],
             "end_at": _iso(payload["end_at"]),
             "duration_ms": payload["end_at"] - payload["start_at"],
             **({} if editable else {"edit_blocker": "occurrence_child_link_contract_unverified"}),
@@ -133,8 +134,8 @@ class OccurrenceEditor:
             raise ValueError("occurrence_child_link_contract_unverified")
         if revision != arguments["expected_revision"]:
             raise ValueError("event_changed_read_again")
-        original = parse_taipei(arguments["occurrence_start_at"])
-        new_start = parse_taipei(arguments["new_start_at"])
+        original = parse_occurrence_time(arguments["occurrence_start_at"], parent)
+        new_start = parse_occurrence_time(arguments["new_start_at"], parent)
         if original == new_start:
             raise ValueError("occurrence_time_unchanged")
         payload, rules = child_payload(parent, new_start), excluded_rules(parent, original)
@@ -187,6 +188,7 @@ class OccurrenceEditor:
                       "series_uuid": arguments["event_uuid"],
                       "original_occurrence_start_at": arguments["occurrence_start_at"],
                       "start_at": _iso(payload["start_at"]), "end_at": _iso(payload["end_at"]),
+                      "timezone": parent["start_timezone"],
                       "edit_scope": "single_generated_occurrence",
                       "concurrency": "two_non_atomic_writes_with_verification",
                       "compare_and_swap": False, "warning": CONCURRENCY_WARNING}

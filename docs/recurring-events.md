@@ -1,11 +1,11 @@
 # Move one occurrence of a recurring event
 
-The source checkout provides a conservative **single-occurrence time move**.
+Version 0.3.0 adds a conservative **single-occurrence time move**.
 It preserves the occurrence's duration and supported event metadata, creates a
 linked replacement, and excludes the original date from its series. It does
 not provide occurrence deletion, general recurrence editing, or "this and
-following" changes. These tools are not included in the published npm 0.2.4
-package; use the current [source checkout](usage.md#local-checkout).
+following" changes. These tools are not included in npm 0.2.4;
+use `timetree-mcp@0.3.0` or the current [source checkout](usage.md#local-checkout).
 
 This implementation was checked with synthetic fixtures. Current public
 TimeTree frontend code was inspected without authentication on 2026-10-31.
@@ -16,7 +16,9 @@ implementation. The endpoints remain unofficial.
 
 The preflight accepts only a narrow, validated shape:
 
-- A timed, category-1 series using `Asia/Taipei`, with dates from 1980 onward.
+- A timed, category-1 series with dates from 1980 onward. Start and end must
+  use the same supported IANA zone: `Asia/Taipei`, `Asia/Tokyo`, `Asia/Kolkata`,
+  `America/New_York`, or `Europe/London`.
 - Start/end timestamps and input timestamps at whole-second precision; the
   duration must be greater than zero and no longer than 24 hours.
 - One `RRULE` with `FREQ=DAILY` or `FREQ=WEEKLY`. Supported bounds include
@@ -24,17 +26,50 @@ The preflight accepts only a narrow, validated shape:
   weekly rules may use `BYDAY` and `WKST`. Supported `EXDATE` exclusions are
   honored. Unsupported combinations and recurrence fields are rejected.
 - The requested original instant must be a generated, non-excluded occurrence
-  of that series. Inputs use `YYYY-MM-DDTHH:MM:SS+08:00` explicitly.
+  of that series. Inputs use `YYYY-MM-DDTHH:MM:SS±HH:MM`, with an explicit
+  numeric offset matching the series zone at that local time. Use `+00:00`
+  instead of `Z`; fractional seconds and naive times are rejected.
 - The raw parent event's `id` must equal its `uuid`. The current calendar
   snapshot must contain at least one existing child corroborating both
   `parent_id` and `recurring_uuid` links to that parent, with no conflicting
   linkage among the relevant records.
 
-All-day events, other timezones or DST-dependent series, complex rules, and
+All-day events, other timezones, cross-start/end-zone events, complex rules, and
 unsupported meaningful metadata are rejected. The implementation does not
 silently discard fields to make an event editable. A valid series can still
 be uneditable when its observed identity/link contract is insufficient.
 **Do not manufacture a child event just to pass the linkage check.**
+
+### Timezones and daylight saving time
+
+Rules are evaluated using the series' local calendar and wall-clock time.
+For example, a safe 09:00 New York weekly series remains at 09:00 across the
+spring offset change; the corresponding UTC instant changes. The selected
+offset must match that date, so New York `-05:00` in winter is not a blanket
+offset for summer. Kolkata's `+05:30` offset is supported. The zone name is
+preserved on the replacement event and returned as `timezone` by preflight
+and successful moves.
+
+The adapter rejects repeated local times during a fall-back transition, even
+if an input specifies one possible offset. It also rejects nonexistent local
+times during spring-forward, missing timezone names, offset mismatches, and
+an original or replacement event interval crossing an offset transition.
+It never guesses which side of a transition the user intended.
+
+For New York and London, recurrence validation checks the intervening generated
+occurrences from the series anchor to the requested original date, up to
+**3660 local days**. An ambiguous/nonexistent intervening occurrence or unsafe
+interval causes rejection, including when it is excluded; this avoids guessing
+how the unofficial service counts DST exceptions. A more distant original
+date is rejected. Safe daytime series can cross seasons within that bound.
+Taipei, Tokyo, and Kolkata retain the fixed-offset behavior for supported dates.
+
+Python's `zoneinfo` needs an IANA database, from the operating system or the
+optional [`tzdata` package](https://docs.python.org/3/library/zoneinfo.html#data-sources).
+Windows commonly needs `tzdata`; install it into the **same Python environment**
+used by `TIMETREE_PYTHON`, for example `python -m pip install tzdata` in your
+virtual environment. The npm wrapper does not install it. Missing data produces
+a clear failure before writes; it never substitutes a fixed offset.
 
 ## Read behavior is unchanged
 
@@ -59,7 +94,7 @@ Call `timetree_get_occurrence_for_edit` with:
 | --- | --- |
 | `calendar_id` | Numeric calendar ID as a **string**, such as `"12345"` |
 | `event_uuid` | Known parent series UUID |
-| `occurrence_start_at` | Exact original start, including seconds and `+08:00` |
+| `occurrence_start_at` | Exact original local start, including seconds and the zone's numeric offset |
 
 Illustrative input only; replace the identifiers and date with the inspected
 target:
@@ -73,7 +108,7 @@ target:
 ```
 
 The result includes `editable`, the original time and duration, the series
-identity, and a `revision` fingerprint of the calendar snapshot. Proceed only
+identity, `timezone`, and a `revision` fingerprint of the calendar snapshot. Proceed only
 when `editable` is true. For example,
 `occurrence_child_link_contract_unverified` means the live snapshot did not
 establish the required linkage; use TimeTree's app instead.
@@ -89,7 +124,7 @@ to the user before writing.
 
 | Argument | Meaning |
 | --- | --- |
-| `new_start_at` | New start in `YYYY-MM-DDTHH:MM:SS+08:00`; duration is preserved |
+| `new_start_at` | New start in `YYYY-MM-DDTHH:MM:SS±HH:MM`, matching the series zone; duration is preserved |
 | `expected_revision` | Exact `revision` returned by the preflight |
 | `operation_id` | A unique, stable identifier for this logical move |
 | `confirm` | Must be the boolean `true`, after the user approves the move |

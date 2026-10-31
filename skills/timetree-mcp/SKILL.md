@@ -29,7 +29,7 @@ Use the `timetree-mcp` MCP tools for direct HTTPS access to TimeTree.
 The server uses a direct HTTPS session by default. Cookies and CSRF tokens stay
 in process memory. The TimeTree web API is unofficial and may change.
 
-## Single-occurrence moves (unreleased source feature)
+## Single-occurrence moves (0.3.0)
 
 - Use `timetree_get_occurrence_for_edit` before `timetree_move_occurrence`.
 - Only move the exact original occurrence when `editable` is true and the user
@@ -39,4 +39,20 @@ in process memory. The TimeTree web API is unofficial and may change.
 - Never bypass an uncertain series lock with another ID, journal path, host, or
   raw event write. Do not retry or roll back automatically.
 - Do not substitute a whole-series update/delete for a single-occurrence request.
-- These tools are available from the source checkout, not published npm 0.2.4.
+- Start/end must share a supported IANA zone: Asia/Taipei, Asia/Tokyo,
+  Asia/Kolkata, America/New_York, or Europe/London. Supply whole-second times
+  with the correct numeric offset and inspect the returned `timezone`.
+- Reject ambiguous/nonexistent local times, cross-zone intervals, missing
+  timezone data, or unsafe DST boundaries; do not bypass these errors.
+- These tools require version 0.3.0 or current source; npm 0.2.4 lacks them.
+
+## Read limits and other tools
+
+- Event date queries use UTC-midnight boundaries, not the event zone's local
+  days. Read a wider range when preparing a local-day view.
+- Recurrence rules are not expanded by event reads. A complete sync does not
+  prove an agenda is complete or that a time is free.
+- Inspect `sync_complete`, `incomplete_calendars`, and `skipped_calendars` on
+  event reads. Memo reads currently omit these completeness fields.
+- See [the complete tool reference](../../docs/tools.md) for all 27 tools,
+  supported event/memo metadata, comments, labels, member reads, and settings.
