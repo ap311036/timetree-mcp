@@ -14,6 +14,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from timetree_mcp.monitor import MonitorManager
+from timetree_mcp.occurrence_editor import validate_arguments as validate_occurrence_arguments
 from timetree_mcp.operations import (
     build_create_event_payload,
     build_memo_payload,
@@ -51,6 +52,8 @@ READ_TOOLS = {
     "timetree_get_calendar_virtual_members",
     "timetree_monitor_status",
     "timetree_keychain_status",
+    "timetree_get_occurrence_for_edit",
+    "timetree_occurrence_operation_status",
 }
 
 WRITE_TOOLS = {
@@ -64,6 +67,7 @@ WRITE_TOOLS = {
     "timetree_update_event_comment",
     "timetree_delete_event_comment",
     "timetree_update_calendar_labels",
+    "timetree_move_occurrence",
 }
 
 TIME_SCHEMA = {
@@ -99,6 +103,7 @@ TOOL_ANNOTATIONS: dict[str, dict[str, bool]] = {
                 "timetree_status",
                 "timetree_keychain_status",
                 "timetree_monitor_status",
+                "timetree_occurrence_operation_status",
             },
         }
         for name in READ_TOOLS
@@ -118,6 +123,12 @@ TOOL_ANNOTATIONS: dict[str, dict[str, bool]] = {
     "timetree_create_event": {
         "readOnlyHint": False,
         "destructiveHint": False,
+        "idempotentHint": False,
+        "openWorldHint": True,
+    },
+    "timetree_move_occurrence": {
+        "readOnlyHint": False,
+        "destructiveHint": True,
         "idempotentHint": False,
         "openWorldHint": True,
     },
@@ -281,12 +292,25 @@ class TimeTreeMcpServer:
                 "instructions": (
                     "TimeTree read/write access through the direct HTTPS session. "
                     "Write tools require confirm=true. Monitor notifications use notifications/message."
+                    " For one recurring occurrence use get_occurrence_for_edit then move_occurrence with its revision."
+                    " Two writes are not atomic: inspect occurrence_operation_status after interruption; never retry with a new ID or roll back automatically."
                 ),
             },
         )
 
     @staticmethod
     def tool_definitions() -> list[dict[str, Any]]:
+        occurrence = {
+            "calendar_id": {"type": "string", "pattern": "^[0-9]{1,40}$"},
+            "event_uuid": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,160}$"},
+            "occurrence_start_at": {"type": "string", "description": "Exact ORIGINAL occurrence start, YYYY-MM-DDTHH:MM:SS+08:00; not the desired new time."},
+        }
+        occurrence_move = {**occurrence,
+            "new_start_at": {"type": "string", "description": "Desired Asia/Taipei time, YYYY-MM-DDTHH:MM:SS+08:00. Original duration is preserved."},
+            "expected_revision": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+            "operation_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,160}$", "description": "Unique intent ID. Reuse the exact request to inspect its saved result; never use a new ID to retry uncertainty."},
+            "confirm": CONFIRM_SCHEMA,
+        }
         event_create = _event_common_properties()
         event_create.update({"calendar_id": ID_SCHEMA, "confirm": CONFIRM_SCHEMA})
         event_update = _event_common_properties()
@@ -302,6 +326,9 @@ class TimeTreeMcpServer:
             {"name": "timetree_list_calendars", "description": "Read the calendars available in the authenticated TimeTree account.", "inputSchema": _object_schema({})},
             {"name": "timetree_list_events", "description": "Read TimeTree events overlapping a date range. This tool is read-only.", "inputSchema": _object_schema({"start_date": {"type": "string", "description": "Inclusive YYYY-MM-DD date."}, "end_date": {"type": "string", "description": "Exclusive YYYY-MM-DD date."}, "calendar_id": ID_SCHEMA, "query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}})},
             {"name": "timetree_status", "description": "Read the current direct HTTPS TimeTree authentication status.", "inputSchema": _object_schema({})},
+            {"name": "timetree_get_occurrence_for_edit", "description": "Read and validate one timed Asia/Taipei DAILY/WEEKLY occurrence before moving it. Returns a calendar revision; unsupported metadata or unverified parent links are rejected. No calendar writes.", "inputSchema": _object_schema(occurrence, list(occurrence))},
+            {"name": "timetree_move_occurrence", "description": "Move ONLY one preflighted occurrence, preserving duration/metadata. Requires confirm=true, revision and operation_id. TWO NON-ATOMIC writes: create child then exclude original. Partial/uncertain operations remain durably blocked; never retry with a new ID or delete/rollback automatically.", "inputSchema": _object_schema(occurrence_move, list(occurrence_move))},
+            {"name": "timetree_occurrence_operation_status", "description": "Read the local occurrence journal by operation_id, including the last dispatch phase and known child UUID. Does not query TimeTree, resume, retry, or unlock an uncertain operation.", "inputSchema": _object_schema({"operation_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,160}$"}}, ["operation_id"])},
             {"name": "timetree_login", "description": "Login to TimeTree over direct HTTPS using TIMETREE_EMAIL and TIMETREE_PASSWORD from the MCP environment; no browser is used.", "inputSchema": _object_schema({})},
             {"name": "timetree_logout", "description": "Clear the in-memory TimeTree session cookie and CSRF token.", "inputSchema": _object_schema({})},
             {"name": "timetree_keychain_status", "description": "Report whether the macOS Keychain contains TimeTree email/password items; never returns their values.", "inputSchema": _object_schema({})},
@@ -335,6 +362,9 @@ class TimeTreeMcpServer:
             return self._error(request_id, -32602, "tools/call requires a name and object arguments")
 
         operation_by_tool = {
+            "timetree_get_occurrence_for_edit": "get_occurrence_for_edit",
+            "timetree_move_occurrence": "move_occurrence",
+            "timetree_occurrence_operation_status": "occurrence_operation_status",
             "timetree_status": "status", "timetree_login": "login", "timetree_logout": "logout", "timetree_keychain_status": "keychain_status", "timetree_list_calendars": "list_calendars", "timetree_list_events": "list_events",
             "timetree_create_event": "create_event", "timetree_update_event": "update_event", "timetree_delete_event": "delete_event",
             "timetree_list_memos": "list_memos", "timetree_create_memo": "create_memo", "timetree_update_memo": "update_memo", "timetree_delete_memo": "delete_memo",
@@ -365,7 +395,10 @@ class TimeTreeMcpServer:
             self._validate_arguments(name, arguments)
             prepared = self._prepare_arguments(name, arguments)
             payload = self.browser.read(operation, prepared)
-            return self._tool_success(request_id, payload)
+            result = self._tool_success(request_id, payload)
+            if name == "timetree_move_occurrence" and payload.get("ok") is False:
+                result["result"]["isError"] = True
+            return result
         except Exception as exc:  # noqa: BLE001 - tool errors must reach the MCP client
             return self._tool_error(request_id, str(exc))
 
@@ -378,6 +411,9 @@ class TimeTreeMcpServer:
             "date", "updated_after", "limit", "query", "start_date", "end_date", "labels", "include_deactivated", "interval_seconds",
         }
         specific = {
+            "timetree_get_occurrence_for_edit": {"calendar_id", "event_uuid", "occurrence_start_at"},
+            "timetree_move_occurrence": {"calendar_id", "event_uuid", "occurrence_start_at", "new_start_at", "expected_revision", "operation_id", "confirm"},
+            "timetree_occurrence_operation_status": {"operation_id"},
             "timetree_status": set(), "timetree_login": set(), "timetree_logout": set(), "timetree_keychain_status": set(), "timetree_list_calendars": set(), "timetree_list_events": {"start_date", "end_date", "calendar_id", "query", "limit"},
             "timetree_create_event": base - {"event_uuid", "memo_uuid", "comment_id", "date", "updated_after", "limit", "query", "start_date", "end_date", "labels", "include_deactivated", "interval_seconds"},
             "timetree_update_event": base - {"memo_uuid", "comment_id", "date", "updated_after", "limit", "query", "start_date", "end_date", "labels", "include_deactivated", "interval_seconds"},
@@ -402,6 +438,12 @@ class TimeTreeMcpServer:
             raise ValueError(f"Unsupported argument(s): {', '.join(unknown)}")
         if name in WRITE_TOOLS:
             require_confirmation(arguments)
+        if name in {"timetree_get_occurrence_for_edit", "timetree_move_occurrence"}:
+            validate_occurrence_arguments(arguments, write=name == "timetree_move_occurrence")
+        if name == "timetree_occurrence_operation_status":
+            value = arguments.get("operation_id")
+            if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", value):
+                raise ValueError("invalid_occurrence_identifier")
         if "calendar_id" in arguments:
             calendar_id_value(arguments["calendar_id"])
         for key in ("start_date", "end_date", "date"):

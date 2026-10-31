@@ -50,6 +50,12 @@
           "description": "Optional HTTP User-Agent override for the direct HTTPS transport.",
           "isRequired": false,
           "format": "string"
+        },
+        {
+          "name": "TIMETREE_STATE_DIR",
+          "description": "Optional absolute private directory for the durable occurrence journal. Keep a stable shared location for local processes; never delete or change it to retry uncertain writes.",
+          "isRequired": false,
+          "format": "string"
         }
       ]
     }

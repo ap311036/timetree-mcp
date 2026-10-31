@@ -14,10 +14,12 @@ from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any, Callable, Mapping
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, build_opener
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .credentials import MacOSKeychainCredentialStore
 from .operations import calendar_id_value, to_epoch_millis
+from .occurrence_editor import OccurrenceEditor
+from .occurrence_journal import OccurrenceJournal, default_journal_path
 from .parser import normalize_event, query_events
 
 
@@ -45,6 +47,11 @@ class TimeTreeHttpError(RuntimeError):
         self.status = status
 
 
+class _NoMutationRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
 class UrllibTransport:
     """Small stdlib transport; CookieJar keeps session cookies in memory only."""
 
@@ -53,6 +60,8 @@ class UrllibTransport:
         self.cookie_jar = CookieJar()
         self.opener = build_opener()
         self.opener.add_handler(__import__("urllib.request", fromlist=["HTTPCookieProcessor"]).HTTPCookieProcessor(self.cookie_jar))
+        self.mutation_opener = build_opener(_NoMutationRedirect())
+        self.mutation_opener.add_handler(__import__("urllib.request", fromlist=["HTTPCookieProcessor"]).HTTPCookieProcessor(self.cookie_jar))
 
     def request(
         self,
@@ -67,7 +76,8 @@ class UrllibTransport:
         request_headers.update(headers or {})
         request = Request(url, data=data, headers=request_headers, method=method.upper())
         try:
-            response = self.opener.open(request, timeout=timeout or self.timeout)
+            opener = self.opener if method.upper() in {"GET", "HEAD"} else self.mutation_opener
+            response = opener.open(request, timeout=timeout or self.timeout)
             return HttpResponse(response.status, dict(response.headers.items()), self._decode(response.read()))
         except HTTPError as exc:
             return HttpResponse(exc.code, dict(exc.headers.items()), self._decode(exc.read()))
@@ -96,6 +106,7 @@ class TimeTreeHttpReader:
         transport: Any | None = None,
         base_url: str | None = None,
         credential_store: Any | None = None,
+        occurrence_journal_path: Path | None = None,
     ):
         self.email = email
         self.password = password
@@ -107,6 +118,8 @@ class TimeTreeHttpReader:
         self._authenticated = False
         self._csrf_token: str | None = None
         self._lock = threading.RLock()
+        self._occurrence_journal_path = occurrence_journal_path
+        self._occurrence_editor_instance: OccurrenceEditor | None = None
 
     def status(self) -> dict[str, Any]:
         with self._lock:
@@ -159,6 +172,14 @@ class TimeTreeHttpReader:
                 return self.logout()
             if operation == "keychain_status":
                 return self.credential_store.status()
+            # A recorded result/status can be read without credentials or network.
+            if operation in {"get_occurrence_for_edit", "move_occurrence", "occurrence_operation_status"}:
+                editor = self._occurrence_editor()
+                if operation == "get_occurrence_for_edit":
+                    return editor.preflight(arguments)
+                if operation == "move_occurrence":
+                    return editor.move(arguments)
+                return editor.operation_status(arguments)
             self._ensure_authenticated()
             if operation == "list_calendars":
                 return {"authenticated": True, "calendars": self._get_calendars()}
@@ -292,7 +313,7 @@ class TimeTreeHttpReader:
             })
         return [calendar for calendar in result if calendar["id"]]
 
-    def _sync_raw_events(self, calendar_id: str) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    def _sync_raw_events(self, calendar_id: str, *, strict: bool = False) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         all_events: list[dict[str, Any]] = []
         since = 0
         requested_cursors = set()
@@ -305,8 +326,17 @@ class TimeTreeHttpReader:
                 if response.status == 400 and isinstance(error, dict) and error.get("code") == -425:
                     return all_events, {"calendar_id": str(calendar_id), "status": response.status, "error_code": -425, "reason": "TimeTree calendar sync unavailable", "pages": page}
                 raise TimeTreeHttpError(f"TimeTree GET request failed with HTTP {response.status}", response.status)
+            if strict:
+                self._require_complete_metadata(body)
+                if (not isinstance(body.get("events"), list)
+                        or type(body.get("chunk")) not in (bool, int)
+                        or body["chunk"] not in (False, True, 0, 1)
+                        or any(not isinstance(e, dict) for e in body["events"])):
+                    raise ValueError("invalid_occurrence_sync_response")
             events = body.get("events") or []
             all_events.extend(event for event in events if isinstance(event, dict))
+            if strict and (len(all_events) > 20000 or len(json.dumps(all_events, allow_nan=False).encode("utf-8")) > 8_000_000):
+                raise ValueError("occurrence_snapshot_capacity_exceeded")
             next_since = body.get("since")
             if not body.get("chunk"):
                 return all_events, None
@@ -318,6 +348,71 @@ class TimeTreeHttpReader:
             if since in requested_cursors:
                 return all_events, {**issue, "reason": "repeated_cursor"}
         return all_events, {"calendar_id": str(calendar_id), "pages": 25, "reason": "page_limit"}
+
+    @staticmethod
+    def _require_complete_metadata(body: dict[str, Any]) -> None:
+        if (not isinstance(body, dict) or body.get("sync_complete", True) is not True
+                or any(body.get(key) for key in ("error", "truncated", "has_more", "skipped_calendars", "incomplete_calendars"))):
+            raise ValueError("occurrence_snapshot_incomplete")
+
+    def _occurrence_editor(self) -> OccurrenceEditor:
+        if self._occurrence_editor_instance is None:
+            path = self._occurrence_journal_path or default_journal_path()
+            self._occurrence_editor_instance = OccurrenceEditor(
+                self._occurrence_snapshot, self._occurrence_create, self._occurrence_exclude,
+                OccurrenceJournal(path), namespace=self.base_url,
+            )
+        return self._occurrence_editor_instance
+
+    def _occurrence_snapshot(self, calendar_id: str) -> list[dict[str, Any]]:
+        self._ensure_authenticated()
+        body = self._body_dict(self._request_json("GET", f"{self.api_base}/calendars?since=0"))
+        self._require_complete_metadata(body)
+        if not isinstance(body.get("calendars"), list):
+            raise ValueError("invalid_occurrence_calendar_response")
+        matches = []
+        for item in body["calendars"]:
+            if not isinstance(item, dict):
+                raise ValueError("invalid_occurrence_calendar_response")
+            attributes = item.get("attributes", {})
+            if not isinstance(attributes, dict):
+                raise ValueError("invalid_occurrence_calendar_response")
+            calendar = {**attributes, **item}
+            if str(calendar.get("id")) == calendar_id:
+                matches.append(calendar)
+        if len(matches) != 1:
+            raise ValueError("unknown_or_ambiguous_occurrence_calendar")
+        deactivated = matches[0].get("deactivated_at")
+        if deactivated is not None and (type(deactivated) not in (int, float) or deactivated != 0):
+            raise ValueError("inactive_or_invalid_occurrence_calendar")
+        events, issue = self._sync_raw_events(calendar_id, strict=True)
+        if issue:
+            raise ValueError("occurrence_snapshot_incomplete")
+        raw_events = []
+        for item in events:
+            attributes = item.get("attributes", {})
+            if not isinstance(attributes, dict):
+                raise ValueError("invalid_occurrence_event")
+            event = {**attributes, **item}
+            event.pop("attributes", None)
+            if event.get("calendar_id") is not None and str(event["calendar_id"]) != calendar_id:
+                raise ValueError("cross_calendar_occurrence_event")
+            event["calendar_id"] = calendar_id
+            raw_events.append(event)
+        return raw_events
+
+    def _occurrence_create(self, calendar_id: str, payload: dict[str, Any]) -> str:
+        body = self._request_json("POST", f"{self.api_base}/calendar/{calendar_id}/event", payload, csrf=True)
+        event = body.get("event") if isinstance(body, dict) and not body.get("error") else None
+        if (not isinstance(event, dict) or not isinstance(event.get("uuid"), str)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", event["uuid"])
+                or (event.get("calendar_id") is not None and str(event["calendar_id"]) != calendar_id)):
+            raise ValueError("occurrence_create_response_unverified")
+        return event["uuid"]
+
+    def _occurrence_exclude(self, calendar_id: str, event_uuid: str, rules: list[str]) -> None:
+        self._request_json("PUT", f"{self.api_base}/calendar/{calendar_id}/event/{event_uuid}",
+                           {"recurrences": rules, "silent": True}, csrf=True)
 
     def _sync_events_result(self, calendar_id: Any = None) -> dict[str, Any]:
         calendars = self._get_calendars()

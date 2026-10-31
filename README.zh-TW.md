@@ -154,17 +154,22 @@ Windows PowerShell 請改用 `.venv\Scripts\Activate.ps1` 啟用虛擬環境。
 | 備忘錄 | `timetree_create_memo`、`timetree_update_memo`、`timetree_delete_memo` |
 | 留言 | `timetree_add_event_comment`、`timetree_update_event_comment`、`timetree_delete_event_comment` |
 | 標籤 | `timetree_update_calendar_labels` |
+| 單次移動（原始碼版） | `timetree_get_occurrence_for_edit`、`timetree_move_occurrence`、`timetree_occurrence_operation_status` |
 | 監控 | `timetree_start_monitor`、`timetree_monitor_status`、`timetree_stop_monitor` |
 
 所有行程、備忘錄、留言與標籤寫入都必須傳入 `confirm: true`。
-時間支援 ISO-8601 字串或 Unix milliseconds。更新或刪除前，先列出行事曆並核對
+一般行程時間支援 ISO-8601 字串或 Unix milliseconds；單次移動須使用指南指定的精確 `+08:00` 格式。
+更新或刪除前，先列出行事曆並核對
 讀取結果中的行程 ID。標籤採合併更新，保留未指定的標籤。
 
-重複行程可傳入 `recurrences` 欄位，但尚無經驗證的工具可僅修改或刪除
-**單次場次**或**這次及之後的場次**。不要用一般行程更新／刪除代替這些限定範圍的操作。
-讀取時也不會將重複規則展開為各個未來場次，因此日期範圍查詢可能漏掉後續重複場次。
-詳見[重複行程限制](docs/recurring-events.md)。成員邀請及移除端點也尚未驗證，
-因此未提供相關工具。
+**原始碼版新功能（npm 0.2.4 尚未包含）：**可移動台北時區、非全天、每日／每週
+重複行程的單次場次，保留原時長及支援的資料欄位。預檢會確認原場次時間與父子事件連結；
+寫入須帶 `confirm: true`、預檢 revision 與固定操作 ID。本機持久紀錄會阻擋中斷後重複送出，
+但建立子事件及排除原場次仍是兩個非原子寫入。使用前請讀[支援範圍與恢復限制](docs/recurring-events.md)。
+
+尚未提供單次刪除或「這次及之後」修改。不要用一般行程更新／刪除代替單次操作。
+`timetree_list_events` 仍不展開重複規則，因此日期範圍查詢可能漏掉後續場次。
+成員邀請及移除端點仍未驗證。
 
 ### 監控限制
 

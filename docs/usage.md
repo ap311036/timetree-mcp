@@ -82,9 +82,10 @@ Calendar and event contents returned by tools are visible to the MCP client
 and may be sent to its model provider. Local credential storage does not mean
 that all calendar data stays on your computer.
 
-Recurring events require special care: this project does not offer a verified
-"only this occurrence" or "this and following" edit. See the
-[recurring-event assessment](recurring-events.md) before modifying a series.
+The source checkout adds a narrow single-occurrence time move; npm 0.2.4 does
+not include it. Follow the [preflight, confirmation, and durable-journal
+workflow](recurring-events.md). Occurrence deletion and "this and following"
+changes remain unsupported. Never use general event tools to emulate this scope.
 
 ## Background monitoring
 

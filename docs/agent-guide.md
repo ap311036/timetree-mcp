@@ -51,6 +51,22 @@ obtain that approval. Every write tool rejects calls without `confirm: true`.
 This includes event, memo, comment, and label changes. Deletion is irreversible, so require a
 separate explicit user confirmation immediately before the call.
 
+## Single-occurrence moves (source checkout)
+
+Use `timetree_get_occurrence_for_edit` for a known series UUID and exact original
+`occurrence_start_at`. Proceed only if `editable` is true, explain the original
+and proposed times, and obtain approval. Call `timetree_move_occurrence` with
+that revision, the desired start, a stable `operation_id`, and `confirm: true`.
+It preserves duration and supported metadata; narrow rule/identity checks can
+reject a series. See [the full supported scope](recurring-events.md).
+
+After interruption, inspect `timetree_occurrence_operation_status` using the
+same operation ID. This is a local record, not a live calendar verification.
+Never retry uncertainty with another ID, delete/change the journal, or use raw
+event tools to roll back. Two writes are not atomic and a partial edit can
+remain; this version has no automatic resume or unlock. Do not run write tools
+during automatic monitoring. The published npm 0.2.4 does not have these tools.
+
 ## Monitoring
 
 `timetree_start_monitor` polls every 30–3600 seconds. The first poll establishes

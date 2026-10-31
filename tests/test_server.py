@@ -98,6 +98,9 @@ class ServerProtocolTests(unittest.TestCase):
             "timetree_get_calendar_virtual_members": (True, False, True, True),
             "timetree_monitor_status": (True, False, True, False),
             "timetree_keychain_status": (True, False, True, False),
+            "timetree_get_occurrence_for_edit": (True, False, True, True),
+            "timetree_occurrence_operation_status": (True, False, True, False),
+            "timetree_move_occurrence": (False, True, False, True),
             "timetree_login": (False, False, False, True),
             "timetree_logout": (False, True, True, False),
             "timetree_create_event": (False, False, False, True),
@@ -115,7 +118,7 @@ class ServerProtocolTests(unittest.TestCase):
         }
 
         self.assertEqual(set(by_name), set(expected))
-        self.assertEqual(len(tools), 24)
+        self.assertEqual(len(tools), 27)
         for name, values in expected.items():
             with self.subTest(tool=name):
                 annotations = by_name[name]["annotations"]
@@ -287,6 +290,34 @@ class ServerProtocolTests(unittest.TestCase):
             {"jsonrpc": "2.0", "id": 5, "method": "unknown/method", "params": {}}
         )
         self.assertEqual(response["error"]["code"], -32601)
+
+    def test_occurrence_move_validates_confirmation_and_exact_inputs_before_reader(self):
+        arguments = {"calendar_id": "42", "event_uuid": "series-demo",
+                     "occurrence_start_at": "2030-01-14T09:00:00+08:00",
+                     "new_start_at": "2030-01-14T10:00:00+08:00",
+                     "expected_revision": "a" * 64, "operation_id": "move-1", "confirm": True}
+        for changes in ({"confirm": False}, {"confirm": 1}, {"calendar_id": 42},
+                        {"occurrence_start_at": "2030-01-14T01:00:00Z"}, {"scope": "all"}):
+            response = self.server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "timetree_move_occurrence", "arguments": {**arguments, **changes}}})
+            self.assertTrue(response["result"]["isError"])
+        self.assertEqual(self.browser.calls, [])
+
+    def test_occurrence_uncertainty_remains_structured_and_sets_tool_error(self):
+        outcome = {"ok": False, "phase": "exclude_dispatched", "created_child_uuid": "child-demo",
+                   "code": "occurrence_outcome_uncertain_do_not_retry"}
+        class Reader:
+            def read(self, operation, arguments):
+                assert operation == "move_occurrence" and arguments["confirm"] is True
+                return outcome
+        response = TimeTreeMcpServer(Reader()).handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "timetree_move_occurrence", "arguments": {
+                "calendar_id": "42", "event_uuid": "series-demo",
+                "occurrence_start_at": "2030-01-14T09:00:00+08:00",
+                "new_start_at": "2030-01-14T10:00:00+08:00", "expected_revision": "a" * 64,
+                "operation_id": "move-1", "confirm": True}}})
+        self.assertTrue(response["result"]["isError"])
+        self.assertEqual(response["result"]["structuredContent"], outcome)
 
 
 if __name__ == "__main__":

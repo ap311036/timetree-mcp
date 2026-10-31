@@ -160,20 +160,27 @@ without installation using `python3 src/timetree_mcp/server.py`.
 | Memos | `timetree_create_memo`, `timetree_update_memo`, `timetree_delete_memo` |
 | Comments | `timetree_add_event_comment`, `timetree_update_event_comment`, `timetree_delete_event_comment` |
 | Labels | `timetree_update_calendar_labels` |
+| Occurrence moves (source checkout) | `timetree_get_occurrence_for_edit`, `timetree_move_occurrence`, `timetree_occurrence_operation_status` |
 | Monitoring | `timetree_start_monitor`, `timetree_monitor_status`, `timetree_stop_monitor` |
 
-All event, memo, comment, and label writes require `confirm: true`. Time inputs
-accept ISO-8601 strings or Unix milliseconds. List calendars and inspect returned
+All event, memo, comment, and label writes require `confirm: true`. General event
+time inputs accept ISO-8601 strings or Unix milliseconds; occurrence moves require
+the exact `+08:00` timestamp format described below. List calendars and inspect returned
 event identifiers before an update or deletion. Omitted labels are preserved by
 label merge updates.
 
-Recurring events accept a `recurrences` field, but there is no verified tool for
-editing or deleting **only one occurrence** or **this and following occurrences**.
-Do not use a general event update/delete as a substitute for that scope. The reader
-also does not expand recurrence rules into individual future occurrences; a
-date-range query can therefore miss later occurrences of a recurring event. See
-[recurring-event limitations](docs/recurring-events.md). Member invitation and
-removal are not exposed because those endpoints are unverified.
+**New in the source checkout (not yet in npm 0.2.4):** move one timed
+`Asia/Taipei` DAILY/WEEKLY occurrence, preserving its duration and supported
+metadata. Preflight checks the exact original instant and observed parent/child
+identity. The move requires `confirm: true`, the returned revision, and a stable
+operation ID. A durable local journal blocks duplicate dispatch after interruption;
+the child creation and parent exclusion are still two non-atomic writes.
+See the [supported scope and recovery limits](docs/recurring-events.md) before use.
+
+Occurrence deletion and "this and following" edits are not provided. Do not use
+a general event update/delete as a substitute for single-occurrence scope.
+`timetree_list_events` still does not expand recurrence rules, so a date-range
+query can miss later occurrences. Member invitation/removal remains unverified.
 
 ### Monitoring limitations
 
