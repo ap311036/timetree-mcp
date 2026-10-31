@@ -20,6 +20,7 @@
     "docs/*.md",
     "skills/**/SKILL.md",
     "README.md",
+    "README.zh-TW.md",
     "LICENSE",
     "SECURITY.md",
     "server.json",

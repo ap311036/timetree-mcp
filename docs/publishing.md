@@ -26,7 +26,7 @@ credentials, `.env` files, tests, or Python cache files.
 
    ```bash
    git tag v0.2.1
-   git push origin main v0.2.1
+   git push origin master v0.2.1
    ```
 
 4. Publish the public package:

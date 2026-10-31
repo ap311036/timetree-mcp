@@ -10,15 +10,17 @@ The published NPM wrapper starts the stdio MCP server:
 npx --yes timetree-mcp
 ```
 
-Credentials are resolved from macOS Keychain first, then the process
-environment and optional password file. Never put a real password in a prompt,
-MCP tool argument, repository file, or chat message.
+For normal server launches, email comes from `TIMETREE_EMAIL`, then macOS
+Keychain. Password comes from `TIMETREE_PASSWORD`, then
+`TIMETREE_PASSWORD_FILE`, then Keychain. Clear environment overrides to use only
+Keychain; do not mix credentials from different accounts. Never put a real
+password in a prompt, MCP tool argument, repository file, or chat message.
 
-Useful setup commands:
+From a source checkout on macOS (the npm wrapper does not install these CLI helpers):
 
 ```bash
-./scripts/setup_timetree_keychain.sh
-timetree-credentials status
+python3 src/timetree_mcp/credentials.py set
+python3 src/timetree_mcp/credentials.py status
 ```
 
 `timetree_keychain_status` reports presence only. `timetree_status` reports
@@ -39,12 +41,14 @@ For writes, follow this sequence:
 ```text
 inspect the target
 -> explain the requested mutation
+-> obtain the user's approval
 -> call the write tool with confirm=true
 -> report the returned result
 ```
 
-Every write tool rejects calls without `confirm: true`. This includes event,
-memo, comment, and label changes. Deletion is irreversible, so require a
+The flag is a programmatic guard, not proof of user approval; the agent must
+obtain that approval. Every write tool rejects calls without `confirm: true`.
+This includes event, memo, comment, and label changes. Deletion is irreversible, so require a
 separate explicit user confirmation immediately before the call.
 
 ## Monitoring
@@ -52,7 +56,9 @@ separate explicit user confirmation immediately before the call.
 `timetree_start_monitor` polls every 30–3600 seconds. The first poll establishes
 a baseline; later additions, updates, and removals are emitted as
 `notifications/message`. Monitoring belongs to the MCP process and stops when
-the client exits.
+the process exits. A restarted process establishes a new baseline. Clients may
+hide logging notifications; delivery does not guarantee a user-visible alert.
+This is not a hosted push service.
 
 ## Error handling
 
@@ -63,3 +69,10 @@ the client exits.
 - If a write fails, report the error without retrying destructive operations
   automatically.
 - Treat the TimeTree web endpoints as unofficial and expect service changes.
+
+## Client setup and limits
+
+See [client configurations and validation status](clients.md), the
+[reproducible offline demo](demo.md), and [recurring-event limitations](recurring-events.md).
+Event content returned by tools is visible to the MCP client and may be sent to
+its model provider; keeping credentials local does not keep tool results local.

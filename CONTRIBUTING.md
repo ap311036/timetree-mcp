@@ -28,5 +28,19 @@ npm test
 
 ## Pull requests
 
+Target the default branch, `master`. Existing clones that still track `main`
+can update with:
+
+```bash
+git branch -m main master
+git fetch origin
+git branch --set-upstream-to=origin/master master
+git remote set-head origin -a
+```
+
+Run the rename command only if the clone has a local `main` branch and no local
+`master`; keep any local work before switching branches. GitHub redirects old
+file-view URLs, but raw-content URLs and Git branch tracking need updating.
+
 Describe the user-visible behavior, test command and result, and any known
 limitations. Keep unrelated formatting or refactoring out of the same change.
