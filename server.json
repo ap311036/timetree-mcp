@@ -3,7 +3,7 @@
   "name": "io.github.ap311036/timetree-mcp",
   "title": "TimeTree MCP",
   "description": "Access TimeTree calendars, events, memos, comments, labels, and background change monitoring through a direct HTTPS MCP server with explicit confirmation for writes.",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "websiteUrl": "https://github.com/ap311036/timetree-mcp",
   "repository": {
     "url": "https://github.com/ap311036/timetree-mcp",
@@ -14,7 +14,7 @@
     {
       "registryType": "npm",
       "identifier": "timetree-mcp",
-      "version": "0.2.3",
+      "version": "0.2.4",
       "transport": {
         "type": "stdio"
       },
