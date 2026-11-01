@@ -29,11 +29,11 @@ documentation, and the companion skill. It must not include credentials,
    test the packed launcher with MCP `initialize`, `tools/list`, and `ping`.
    No credentials or real calendar writes are needed for these checks.
 3. Commit and push to `master`, verify branch CI, then create and push the
-   matching version tag. For a release whose chosen version is 0.3.0:
+   matching version tag. For a release whose chosen version is 0.4.0:
 
    ```bash
-   git tag v0.3.0
-   git push origin v0.3.0
+   git tag v0.4.0
+   git push origin v0.4.0
    ```
 
 4. The tag automatically starts `.github/workflows/publish.yml`, which

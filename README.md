@@ -10,18 +10,23 @@
 [![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-339933)](package.json)
 [![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-3776AB)](pyproject.toml)
 
-TimeTree MCP is an unofficial [Model Context Protocol](https://modelcontextprotocol.io/)
-server for calendars, events, memos, and comments. It runs locally over stdio,
-connects directly to TimeTree over HTTPS, and requires `confirm: true` for
+TimeTree MCP is a [Model Context Protocol](https://modelcontextprotocol.io/)
+server for calendar search, events, memos, comments, and change monitoring.
+It runs locally over stdio, connects directly to TimeTree over HTTPS, and requires `confirm: true` for
 calendar writes. Keep credentials in macOS Keychain or a local password file.
 
 ```bash
-npx --yes timetree-mcp@0.3.0
+npx --yes timetree-mcp@0.4.0
 ```
 
 **Python 3.10+ is required even when using npm.** The wrapper also requires
 Node.js 18+. Configure credentials and an MCP client before using calendar tools;
 the command above starts a stdio server, not an interactive chat interface.
+
+Version **0.4.0** provides **29 tools**, adding read-only recurrence occurrence
+queries and timezone diagnostics to the 27 tools in 0.3.0. See
+[occurrence queries and timezone diagnostics](#occurrence-queries-and-timezone-diagnostics)
+for the supported rules and validation limits.
 
 [Quick start](#quick-start) · [Client setup and validation status](docs/clients.md) ·
 [Reproducible demo](docs/demo.md) · [Tool reference](#mcp-tools)
@@ -128,7 +133,7 @@ For Codex with a password file:
 codex mcp add timetree \
   --env TIMETREE_EMAIL=your-email@example.com \
   --env TIMETREE_PASSWORD_FILE=/absolute/path/to/timetree-password \
-  -- npx --yes timetree-mcp@0.3.0
+  -- npx --yes timetree-mcp@0.4.0
 ```
 
 For macOS Keychain, omit both `--env` options. If a `timetree` entry already exists,
@@ -166,6 +171,7 @@ without installation using `python3 src/timetree_mcp/server.py`.
 | Labels | `timetree_update_calendar_labels` |
 | Occurrence moves | `timetree_get_occurrence_for_edit`, `timetree_move_occurrence`, `timetree_occurrence_operation_status` |
 | Monitoring | `timetree_start_monitor`, `timetree_monitor_status`, `timetree_stop_monitor` |
+| Occurrence queries and diagnostics (0.4.0) | `timetree_list_occurrences`, `timetree_timezone_status` |
 
 All event, memo, comment, and label writes require `confirm: true`. General event
 time inputs accept ISO-8601 strings or Unix milliseconds; occurrence moves require
@@ -196,8 +202,30 @@ a general event update/delete as a substitute for single-occurrence scope.
 query can miss later occurrences. General event tools accept raw recurrence
 arrays without promising support for arbitrary recurrence rules or edit scopes.
 There are no file-upload, calendar-management, or member invitation/removal tools.
-See the [complete 27-tool reference](docs/tools.md) for every argument group,
+See the [complete tool reference](docs/tools.md) for all 29 tools, every argument group,
 optional field, environment setting, and unsupported operation.
+
+### Occurrence queries and timezone diagnostics
+
+`timetree_list_occurrences` expands a supported timed series into dated
+occurrences for a window of at most 93 days. It includes single and detached
+events, with explicit reporting when unsupported rules or unsafe timezone
+cases make the result incomplete. The query accepts a conservative subset of
+DAILY, WEEKLY, MONTHLY, and YEARLY rules in the same five supported zones.
+Monthly and yearly support is **read-only**; single-occurrence moves remain
+limited to DAILY/WEEKLY. An incomplete or truncated result cannot establish
+that a time is free. See [query scope and examples](docs/occurrence-queries.md).
+
+`timetree_timezone_status` diagnoses timezone-data availability in the Python
+environment running the server, without authentication or calendar access.
+It distinguishes supported occurrence zones from other requested zones and
+reports missing data with setup guidance. This check does not validate a live
+calendar or make unsupported edit scopes safe.
+
+Version 0.4.0 also uses fresh timezone-data lookups for new
+occurrence query/edit validation and rejects weekly `BYDAY` rules that omit the series'
+anchor weekday. Replaying an already recorded operation remains offline and
+does not require timezone data. These additional guards are not in npm 0.3.0.
 
 ### Monitoring limitations
 
@@ -236,10 +264,13 @@ schedule or interpreting apparent removals.
 - [Client setup](docs/clients.md): configuration examples and validation status.
 - [Demo](docs/demo.md): reproducible behavior and verification boundaries.
 - [Usage guide](docs/usage.md): local development and monitoring.
-- [Complete tool reference](docs/tools.md): all 27 tools, supported fields, defaults, and configuration.
+- [Complete tool reference](docs/tools.md): all 29 tools, supported fields, defaults, and configuration.
+- [Occurrence queries](docs/occurrence-queries.md): recurrence expansion and timezone diagnostics added in 0.4.0.
+- [Isolated calendar tests](docs/isolated-calendar-testing.md): live-test prerequisites, current blocker, and synthetic cases.
 - [Agent guide](docs/agent-guide.md): tool workflow and error handling.
 - [Companion skill](skills/timetree-mcp/SKILL.md): operating guidance for agents that support skills.
 - [Publishing](docs/publishing.md): npm, version checks, MCP Registry metadata, and GitHub Actions.
+- [Discoverability](docs/discoverability.md): accurate project metadata and search-appearance limits.
 - [`server.json`](server.json): manifest for `io.github.ap311036/timetree-mcp`.
 - [Security policy](SECURITY.md) · [Contributing](CONTRIBUTING.md).
 

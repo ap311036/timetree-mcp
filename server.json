@@ -2,8 +2,8 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.ap311036/timetree-mcp",
   "title": "TimeTree MCP",
-  "description": "Access TimeTree calendars, events, memos, comments, labels, and background change monitoring through a direct HTTPS MCP server with explicit confirmation for writes.",
-  "version": "0.3.0",
+  "description": "TimeTree MCP server for calendar search, events, memos, comments, and change monitoring. Local stdio; confirmation-gated writes.",
+  "version": "0.4.0",
   "websiteUrl": "https://github.com/ap311036/timetree-mcp",
   "repository": {
     "url": "https://github.com/ap311036/timetree-mcp",
@@ -14,7 +14,7 @@
     {
       "registryType": "npm",
       "identifier": "timetree-mcp",
-      "version": "0.3.0",
+      "version": "0.4.0",
       "transport": {
         "type": "stdio"
       },

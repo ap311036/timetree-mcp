@@ -24,13 +24,24 @@ Recipes below were checked against the official client documentation on
 were parsed locally. These checks verify the launcher and protocol, **not**
 Claude Desktop/Cursor/ChatGPT UI behavior, notification display, or a live
 TimeTree login. Windows recipes have not been run on Windows. The configuration recipes below
-pin 0.3.0, which adds three occurrence tools (27 total); the historical 0.2.4
-check does not verify those additions.
+pin 0.4.0, which provides 29 tools; the historical 0.2.4 check does not verify
+the later additions.
 
 The locally packed 0.3.0 release artifact also passed `initialize`, `tools/list`
 (27 tools), and `ping` with the same Node/Python versions and no credentials or
 calendar requests. This verifies the bundled artifact, not a client GUI or a
 live calendar mutation.
+
+On 2026-11-01, the locally packed 0.4.0 artifact passed `initialize`, `tools/list`
+(29 tools), `ping`, and `timetree_timezone_status` for `Asia/Tokyo` with the same
+Node/Python versions. Its package includes all three READMEs. These checks used
+no credentials or calendar requests; they do not verify a client GUI or live
+calendar behavior.
+
+Version 0.4.0 adds `timetree_list_occurrences` and `timetree_timezone_status`
+to the 27 tools in 0.3.0. The pinned npm configurations below select the
+29-tool release; a matching [source checkout](usage.md#local-checkout) is also
+available. No new client UI validation is implied by these additions.
 
 | Client surface | Connection | Verification boundary |
 | --- | --- | --- |
@@ -87,13 +98,13 @@ The installed `codex mcp add --help` supports a stdio command after `--` and
 codex mcp add timetree \
   --env TIMETREE_EMAIL=your-email@example.com \
   --env TIMETREE_PASSWORD_FILE=/absolute/path/to/timetree-password \
-  -- npx --yes timetree-mcp@0.3.0
+  -- npx --yes timetree-mcp@0.4.0
 ```
 
 With macOS Keychain already configured:
 
 ```bash
-codex mcp add timetree -- npx --yes timetree-mcp@0.3.0
+codex mcp add timetree -- npx --yes timetree-mcp@0.4.0
 ```
 
 If needed, add `--env TIMETREE_PYTHON=/absolute/path/to/python3` before `--`.
@@ -117,7 +128,7 @@ documents **Settings → Developer → Edit Config**. Paths include
   "mcpServers": {
     "timetree": {
       "command": "npx",
-      "args": ["--yes", "timetree-mcp@0.3.0"],
+      "args": ["--yes", "timetree-mcp@0.4.0"],
       "env": {
         "TIMETREE_EMAIL": "your-email@example.com",
         "TIMETREE_PASSWORD_FILE": "/absolute/path/to/timetree-password"
@@ -144,7 +155,7 @@ describes stdio settings and configuration locations.
     "timetree": {
       "type": "stdio",
       "command": "npx",
-      "args": ["--yes", "timetree-mcp@0.3.0"],
+      "args": ["--yes", "timetree-mcp@0.4.0"],
       "env": {
         "TIMETREE_EMAIL": "your-email@example.com",
         "TIMETREE_PASSWORD_FILE": "/absolute/path/to/timetree-password"
@@ -162,7 +173,7 @@ tool approvals enabled while trying the integration.
 OpenAI's current [local MCP guide](https://developers.openai.com/codex/mcp)
 documents a ChatGPT desktop **Settings → MCP servers → Add server** flow with
 STDIO support. If your installed desktop app exposes that flow, choose STDIO,
-use command `npx` with arguments `--yes`, `timetree-mcp@0.3.0`, and configure
+use command `npx` with arguments `--yes`, `timetree-mcp@0.4.0`, and configure
 credentials as above. Local clients on the same Codex host share MCP
 configuration. This recipe has not been tested in the desktop UI.
 
@@ -182,7 +193,7 @@ direct `npx` startup fails, the command fields can be:
 ```json
 {
   "command": "cmd",
-  "args": ["/c", "npx", "--yes", "timetree-mcp@0.3.0"],
+  "args": ["/c", "npx", "--yes", "timetree-mcp@0.4.0"],
   "env": {
     "TIMETREE_PYTHON": "C:\\Path\\To\\Python\\python.exe",
     "TIMETREE_EMAIL": "your-email@example.com",

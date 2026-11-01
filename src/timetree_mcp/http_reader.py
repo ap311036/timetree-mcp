@@ -21,6 +21,7 @@ from .operations import calendar_id_value, to_epoch_millis
 from .occurrence_editor import OccurrenceEditor
 from .occurrence_journal import OccurrenceJournal, default_journal_path
 from .parser import normalize_event, query_events
+from .recurrence_query import expand_occurrences, validate_query_arguments
 
 
 BASE_URL = os.environ.get("TIMETREE_BASE_URL", "https://timetreeapp.com").rstrip("/")
@@ -172,6 +173,10 @@ class TimeTreeHttpReader:
                 return self.logout()
             if operation == "keychain_status":
                 return self.credential_store.status()
+            if operation == "list_occurrences":
+                query = validate_query_arguments(arguments)
+                events = self._occurrence_snapshot(query["calendar_id"])
+                return expand_occurrences(events, **query)
             # A recorded result/status can be read without credentials or network.
             if operation in {"get_occurrence_for_edit", "move_occurrence", "occurrence_operation_status"}:
                 editor = self._occurrence_editor()

@@ -14,6 +14,7 @@ import hashlib
 import json
 import math
 import re
+from struct import error as StructError
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Any
@@ -129,8 +130,10 @@ def _parent_zone(parent: Any) -> ZoneInfo:
     if parent.get("end_timezone") != name:
         _fail("occurrence_timezone_mismatch")
     try:
-        return ZoneInfo(name)
-    except (ZoneInfoNotFoundError, ValueError, OSError):
+        # A previously cached object must not hide removed or broken data when
+        # validating a new query/write after a local diagnostic reports failure.
+        return ZoneInfo.no_cache(name)
+    except (ZoneInfoNotFoundError, ValueError, OSError, EOFError, StructError):
         _fail("occurrence_timezone_data_unavailable")
 
 
@@ -426,6 +429,8 @@ def _parse_rules(parent: dict[str, Any]) -> tuple[dict[str, Any], set[int]]:
             _fail("unsupported_recurrence_rule")
         parsed["week_start"] = WEEKDAYS[week_start]
         parsed["weekdays"] = [WEEKDAYS[day] for day in days] if days else None
+        if days and _safe_instant(_raw_instant(parent.get("start_at")), zone).weekday() not in parsed["weekdays"]:
+            _fail("recurrence_anchor_mismatch")
     return parsed, exclusions
 
 

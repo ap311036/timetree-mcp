@@ -147,7 +147,7 @@ class OccurrenceHttpTests(unittest.TestCase):
 
     def test_missing_timezone_database_blocks_new_dispatch_but_not_saved_replay(self):
         request = self.request()
-        with patch("timetree_mcp.occurrence_rules.ZoneInfo", side_effect=ZoneInfoNotFoundError):
+        with patch("timetree_mcp.occurrence_rules.ZoneInfo", **{"no_cache.side_effect": ZoneInfoNotFoundError}):
             result = self.call("timetree_move_occurrence", request)
             self.assertTrue(result["isError"])
             self.assertEqual(result["structuredContent"]["error"], "occurrence_timezone_data_unavailable")
@@ -155,7 +155,7 @@ class OccurrenceHttpTests(unittest.TestCase):
         self.assertEqual((self.transport.calendar.posts, self.transport.calendar.puts), (0, 0))
         completed = self.call("timetree_move_occurrence", request)
         self.assertFalse(completed["isError"], completed)
-        with patch("timetree_mcp.occurrence_rules.ZoneInfo", side_effect=ZoneInfoNotFoundError), \
+        with patch("timetree_mcp.occurrence_rules.ZoneInfo", **{"no_cache.side_effect": ZoneInfoNotFoundError}), \
                 patch.object(self.transport, "request", side_effect=AssertionError("replay must be offline")):
             self.assertEqual(self.call("timetree_move_occurrence", request), completed)
 

@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "timetree-mcp"
-version = "0.3.0"
-description = "An unofficial MCP server for TimeTree calendar access"
+version = "0.4.0"
+description = "TimeTree MCP server for calendar search, events, memos, comments, and change monitoring. Local stdio; confirmation-gated writes."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 authors = [
     { name = "TimeTree MCP contributors" },
 ]
-keywords = ["mcp", "timetree", "calendar"]
+keywords = ["mcp", "mcp-server", "model-context-protocol", "timetree", "calendar", "events", "memos", "recurring-events", "monitoring", "stdio"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",

@@ -7,7 +7,7 @@ Use this guide when connecting an assistant or coding agent to TimeTree MCP.
 The published NPM wrapper starts the stdio MCP server:
 
 ```bash
-npx --yes timetree-mcp@0.3.0
+npx --yes timetree-mcp@0.4.0
 ```
 
 For normal server launches, email comes from `TIMETREE_EMAIL`, then macOS
@@ -26,6 +26,11 @@ python3 src/timetree_mcp/credentials.py status
 `timetree_keychain_status` reports presence only. `timetree_status` reports
 authentication and transport state without returning credential values.
 
+In version 0.4.0, `timetree_timezone_status` can diagnose IANA
+data before authentication. It performs no calendar or credential access.
+This and `timetree_list_occurrences` require 0.4.0; npm 0.3.0 has 27 tools and
+does not contain them. Inspect `tools/list` instead of assuming availability.
+
 ## Tool workflow
 
 Use read tools freely after authentication:
@@ -35,6 +40,13 @@ Use read tools freely after authentication:
 3. `timetree_list_events` for date-range or keyword queries.
 4. `timetree_list_memos` for category-2 memos.
 5. Metadata tools for comments, labels, members, and virtual members.
+
+When `timetree_list_occurrences` is available, use it to read
+dated occurrences in a window of at most 93 × 24 hours. Inspect `complete`,
+`coverage_complete`, `has_more`, and `unsupported`. Use actual event/series UUIDs
+from the result, not its synthetic `occurrence_id`, when preparing a later
+operation. MONTHLY/YEARLY support is query-only; a returned occurrence does not
+make the series editable. See [query scope and rules](occurrence-queries.md).
 
 For writes, follow this sequence:
 
@@ -93,7 +105,7 @@ This is not a hosted push service.
 ## Client setup and limits
 
 See [client configurations and validation status](clients.md), the
-[complete 27-tool reference](tools.md), [reproducible offline demo](demo.md),
+[complete tool reference](tools.md), [reproducible offline demo](demo.md),
 and [recurring-event limitations](recurring-events.md).
 Event content returned by tools is visible to the MCP client and may be sent to
 its model provider; keeping credentials local does not keep tool results local.

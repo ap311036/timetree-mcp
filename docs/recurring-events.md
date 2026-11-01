@@ -5,7 +5,7 @@ It preserves the occurrence's duration and supported event metadata, creates a
 linked replacement, and excludes the original date from its series. It does
 not provide occurrence deletion, general recurrence editing, or "this and
 following" changes. These tools are not included in npm 0.2.4;
-use `timetree-mcp@0.3.0` or the current [source checkout](usage.md#local-checkout).
+use `timetree-mcp@0.4.0` or the matching [source checkout](usage.md#local-checkout).
 
 This implementation was checked with synthetic fixtures. Current public
 TimeTree frontend code was inspected without authentication on 2026-10-31.
@@ -25,6 +25,8 @@ The preflight accepts only a narrow, validated shape:
   `INTERVAL`, `COUNT`, and `UNTIL` expressed as UTC or a date-only bound;
   weekly rules may use `BYDAY` and `WKST`. Supported `EXDATE` exclusions are
   honored. Unsupported combinations and recurrence fields are rejected.
+  Starting in 0.4.0, a weekly anchor must also match its explicit
+  `BYDAY` selection; an inconsistent rule is rejected instead of guessed.
 - The requested original instant must be a generated, non-excluded occurrence
   of that series. Inputs use `YYYY-MM-DDTHH:MM:SS±HH:MM`, with an explicit
   numeric offset matching the series zone at that local time. Use `+00:00`
@@ -70,8 +72,19 @@ Windows commonly needs `tzdata`; install it into the **same Python environment**
 used by `TIMETREE_PYTHON`, for example `python -m pip install tzdata` in your
 virtual environment. The npm wrapper does not install it. Missing data produces
 a clear failure before writes; it never substitutes a fixed offset.
+Version 0.4.0 uses fresh lookups for new occurrence queries and edit
+validation, so a cached zone cannot mask missing installed data. Saved journal
+replay remains independent of timezone data.
 
 ## Read behavior is unchanged
+
+Version 0.4.0 adds a separate `timetree_list_occurrences` tool
+for bounded recurrence expansion, plus `timetree_timezone_status` for local
+data diagnostics. These are not in npm 0.3.0. See [query scope and
+examples](occurrence-queries.md). Its MONTHLY/YEARLY interpretation is read-only
+and does not broaden this move adapter's DAILY/WEEKLY support. Live backend
+edge-case behavior has not been established; see the [isolated test
+prerequisites](isolated-calendar-testing.md).
 
 `timetree_list_events` still does **not** expand recurrence rules into dated
 occurrences. Its filtering compares the stored event's start/end, so a series

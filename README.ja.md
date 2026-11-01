@@ -10,19 +10,22 @@
 [![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-339933)](package.json)
 [![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-3776AB)](pyproject.toml)
 
-TimeTree MCP は、カレンダー、予定、メモ、コメントを操作する非公式の
+TimeTree MCP は、カレンダー、予定、メモ、コメントの読み取りと更新に使える
 [Model Context Protocol](https://modelcontextprotocol.io/) サーバーです。
 ローカルで stdio を介して動作し、HTTPS で TimeTree に直接接続します。
 カレンダーへの書き込みには `confirm: true` が必要です。
 認証情報は macOS キーチェーンやローカルのパスワードファイルに保存できます。
 
 ```bash
-npx --yes timetree-mcp@0.3.0
+npx --yes timetree-mcp@0.4.0
 ```
 
 **npm を使う場合も Python 3.10 以上が必要です。** npm ランチャーには Node.js 18 以上も必要です。
 カレンダーを操作する前に、認証情報と MCP クライアントを設定してください。
 上のコマンドは stdio サーバーを起動するもので、対話型のチャット画面を開くものではありません。
+
+**0.4.0 の新機能：** 繰り返し予定の期間照会とタイムゾーン診断が加わり、
+全 29 ツールを利用できます。以前の npm 0.3.0 は 27 ツールで、これらの追加機能は含まれません。
 
 [クイックスタート](#クイックスタート) · [クライアント設定と検証状況](docs/clients.md) ·
 [再現可能なデモ](docs/demo.md) · [ツール一覧](#mcp-tools)
@@ -45,6 +48,8 @@ npx --yes timetree-mcp@0.3.0
 | 確認フラグ付きの書き込み | 予定・メモ・コメントの作成、更新、削除。ラベル名と色のマージ更新。 |
 | 予定の詳細 | 時刻付き・終日の予定、タイムゾーン、メモ、場所、URL、ラベル、参加者、アラート、チェックリスト、バーチャル参加者、既存ファイル UUID への参照。 |
 | 繰り返し予定の 1 回分を移動 | 対応する毎日・毎週の予定について、元の所要時間と対応メタデータを保ったまま 1 回分の時刻を変更。事前確認、リビジョン、操作 ID、ローカルの永続記録が必要です。 |
+| 繰り返し予定の期間照会 | 対応する毎日・毎週・毎月・毎年のルールから、最大 93 日の指定期間に重なる回を読み取り専用で列挙。扱えない予定がある場合は結果が不完全であることを示します。 |
+| タイムゾーン診断 | ローカル Python 環境でタイムゾーンデータを読み込めるか確認。カレンダーへの接続や書き込みは行いません。 |
 | ツール引数に認証情報を含めない | 認証情報はプロセスの環境変数、パスワードファイル、macOS キーチェーンから取得。セッション Cookie と CSRF トークンはプロセスのメモリに保持します。 |
 | 予定の変更を監視 | 30〜3600 秒間隔でポーリングし、予定の追加・更新・削除を MCP 通知として送信。 |
 | 少ない依存関係 | Python の実行部分は標準ライブラリを使用。npm は同梱の Python サーバーを起動します。 |
@@ -127,7 +132,7 @@ Codex とパスワードファイルを使う場合：
 codex mcp add timetree \
   --env TIMETREE_EMAIL=your-email@example.com \
   --env TIMETREE_PASSWORD_FILE=/absolute/path/to/timetree-password \
-  -- npx --yes timetree-mcp@0.3.0
+  -- npx --yes timetree-mcp@0.4.0
 ```
 
 macOS キーチェーンを使う場合は 2 つの `--env` オプションを省略します。
@@ -153,10 +158,13 @@ Windows の PowerShell では `.venv\Scripts\Activate.ps1` で仮想環境を有
 
 ## MCP tools
 
+0.4.0 は、0.3.0 の 27 ツールに期間照会と診断の 2 ツールを加えた、全 29 ツールを提供します。
+
 | 分類 | ツール |
 |---|---|
 | セッション | `timetree_login`、`timetree_logout`、`timetree_status`、`timetree_keychain_status` |
 | 読み取り | `timetree_list_calendars`、`timetree_list_events`、`timetree_list_memos`、`timetree_list_event_comments` |
+| 期間照会・診断 | `timetree_list_occurrences`、`timetree_timezone_status` |
 | カレンダー情報 | `timetree_get_calendar_labels`、`timetree_get_calendar_members`、`timetree_get_calendar_virtual_members` |
 | 予定 | `timetree_create_event`、`timetree_update_event`、`timetree_delete_event` |
 | メモ | `timetree_create_memo`、`timetree_update_memo`、`timetree_delete_memo` |
@@ -170,7 +178,34 @@ Windows の PowerShell では `.venv\Scripts\Activate.ps1` で仮想環境を有
 1 回分の移動には、秒と数値 UTC オフセットを明示した時刻を使用してください。
 更新や削除の前にカレンダーを一覧表示し、読み取り結果の予定 ID を確認してください。
 ラベルのマージ更新では、指定していないラベルを保持します。
-全 27 ツールの引数、機能、対応範囲は[ツールリファレンス](docs/tools.md)を参照してください。
+全 29 ツールの引数、機能、対応範囲は[ツールリファレンス](docs/tools.md)を参照してください。
+
+### 繰り返し予定の期間照会とタイムゾーン診断（0.4.0）
+
+`timetree_list_occurrences` は、指定したカレンダーの読み取り結果から、期間内に重なる
+時刻付きの予定を列挙します。元のシリーズ、移動済みの子イベント、通常の予定を区別し、
+除外と親子関係を保守的に確認し、曖昧なグループは結果から除いて不完全と報告します。
+各子イベントと元の回の 1 対 1 の対応を保証するものではありません。期間は開始を含み、終了を含まず、
+最大 93 × 24 時間です。対応する毎日・毎週のルールに加え、毎月・毎年の一部のルールを照会できます。
+月末や閏日など存在しない日付は、対応ルールの定義に従って扱います。
+
+対応外のルール、時刻、親子関係などがある場合は、不完全な結果であることを返します。
+不完全な結果や件数上限で切られた一覧だけから、予定がないことや空き時間を断定しないでください。
+終日の予定、任意の繰り返しルール、すべてのタイムゾーンを扱えるわけではありません。
+この追加機能によって、毎月・毎年の予定の 1 回分の変更が可能になるわけではありません。
+書き込み側の対応範囲は引き続き毎日・毎週に限ります。
+
+`timetree_timezone_status` は、選択した Python 環境で IANA タイムゾーンを読み込めるかを
+診断します。認証やカレンダーへのアクセスは不要です。タイムゾーンデータがない場合は、
+MCP サーバーと同じ Python 環境に `tzdata` を導入する必要があります。
+データを読み込めても、そのタイムゾーンが予定の変更機能に対応しているとは限りません。
+照会と診断の引数・応答・制限は[期間照会ガイド](docs/occurrence-queries.md)、
+変更の対応範囲は[繰り返し予定ガイド](docs/recurring-events.md)を確認してください。
+
+0.4.0 では、繰り返し予定の照会・編集の新たな検証時にタイムゾーンデータを
+改めて読み込み、シリーズ開始日の曜日を含まない毎週の `BYDAY` ルールを拒否します。
+記録済み操作の結果の再取得は引き続きオフラインで行い、タイムゾーンデータを必要としません。
+これらの追加保護は npm 0.3.0 には含まれません。
 
 ### 繰り返し予定の 1 回分を移動する
 
@@ -247,10 +282,13 @@ MCP プロセスが終了すると監視も停止します。常時動作する�
 - [デモ](docs/demo.md)：再現可能な操作と検証範囲。
 - [使い方](docs/usage.md)：ローカル開発と監視。
 - [エージェントガイド](docs/agent-guide.md)：ツールの利用手順とエラー処理。
-- [ツールリファレンス](docs/tools.md)：全 27 ツールの引数、機能、制限と設定用環境変数。
+- [ツールリファレンス](docs/tools.md)：全 29 ツールの引数、機能、制限と設定用環境変数。
+- [期間照会とタイムゾーン診断](docs/occurrence-queries.md)：0.4.0 で追加した読み取り機能の対応範囲と例。
+- [隔離したカレンダーでの検証](docs/isolated-calendar-testing.md)：実環境での検証の前提、現在の障害、合成データのケース。
 - [繰り返し予定の 1 回分の移動](docs/recurring-events.md)：対応範囲、タイムゾーン、ジャーナル、復旧上の制限。
 - [補助スキル](skills/timetree-mcp/SKILL.md)：スキルに対応したエージェント向けの操作規範。
 - [公開手順](docs/publishing.md)：npm、バージョン確認、MCP Registry メタデータ、GitHub Actions。
+- [検索での表示](docs/discoverability.md)：正確なプロジェクト説明と検索結果の表示上の制限。
 - [`server.json`](server.json)：`io.github.ap311036/timetree-mcp` のマニフェスト。
 - [セキュリティポリシー](SECURITY.md) · [貢献ガイド](CONTRIBUTING.md)。
 

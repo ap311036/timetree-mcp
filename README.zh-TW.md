@@ -10,18 +10,21 @@
 [![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-339933)](package.json)
 [![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-3776AB)](pyproject.toml)
 
-TimeTree MCP 是非官方的 [Model Context Protocol](https://modelcontextprotocol.io/)
-server，可操作行事曆、行程、備忘錄與留言。它在本機透過 stdio 執行，直接以 HTTPS
+TimeTree MCP 是 [Model Context Protocol](https://modelcontextprotocol.io/)
+server，可搜尋行事曆、操作行程與備忘錄、管理留言及監控變更。它在本機透過 stdio 執行，直接以 HTTPS
 連線到 TimeTree；所有行事曆寫入都要求 `confirm: true`。認證資料可保存在 macOS
 Keychain 或本機密碼檔。
 
 ```bash
-npx --yes timetree-mcp@0.3.0
+npx --yes timetree-mcp@0.4.0
 ```
 
 **即使使用 npm，仍須安裝 Python 3.10+。** npm wrapper 另需 Node.js 18+。
 操作行事曆前，請先設定認證資料與 MCP client；上述指令啟動的是 stdio server，
 不是互動式聊天介面。
+
+**0.4.0** 提供 **29 個工具**，在 0.3.0 的 27 個工具上新增唯讀的重複場次查詢與時區資料診斷。
+支援規則與驗證限制請見[場次查詢與時區診斷](#場次查詢與時區診斷)。
 
 [快速開始](#快速開始) · [Client 設定與驗證狀態](docs/clients.md) ·
 [可重現示範](docs/demo.md) · [工具清單](#mcp-tools)
@@ -124,7 +127,7 @@ Codex 搭配密碼檔的設定：
 codex mcp add timetree \
   --env TIMETREE_EMAIL=your-email@example.com \
   --env TIMETREE_PASSWORD_FILE=/absolute/path/to/timetree-password \
-  -- npx --yes timetree-mcp@0.3.0
+  -- npx --yes timetree-mcp@0.4.0
 ```
 
 使用 macOS Keychain 時，省略兩個 `--env` 選項。若已有 `timetree` 設定，先檢查再替換。
@@ -160,6 +163,7 @@ Windows PowerShell 請改用 `.venv\Scripts\Activate.ps1` 啟用虛擬環境。
 | 標籤 | `timetree_update_calendar_labels` |
 | 單次移動 | `timetree_get_occurrence_for_edit`、`timetree_move_occurrence`、`timetree_occurrence_operation_status` |
 | 監控 | `timetree_start_monitor`、`timetree_monitor_status`、`timetree_stop_monitor` |
+| 場次查詢與診斷（0.4.0） | `timetree_list_occurrences`、`timetree_timezone_status` |
 
 所有行程、備忘錄、留言與標籤寫入都必須傳入 `confirm: true`。
 一般行程時間支援 ISO-8601 字串或 Unix milliseconds；單次移動須精確到秒，且明確指定與系列時區相符的數字 UTC 偏移。
@@ -183,7 +187,25 @@ Windows PowerShell 請改用 `.venv\Scripts\Activate.ps1` 啟用虛擬環境。
 `timetree_list_events` 仍不展開重複規則，因此日期範圍查詢可能漏掉後續場次。
 一般行程工具可傳送原始 recurrence 陣列，但不保證任意重複規則或編輯範圍都正確受支援。
 未提供檔案上傳、行事曆管理或成員邀請／移除工具。
-全部參數分類、選用欄位、環境設定及未支援操作見[完整 27 項工具參考](docs/tools.md)。
+全部 29 個工具的參數、選用欄位、環境設定及未支援操作，
+見[完整工具參考](docs/tools.md)。
+
+### 場次查詢與時區診斷
+
+`timetree_list_occurrences` 可在最長 93 天的範圍內，將支援的非全天重複系列展開為個別場次，
+並納入單一行程及已分離的場次。支援五個時區中的部分每日、每週、每月與每年規則；
+若有未支援的規則或無法安全判定的時區情況，會明確標示結果不完整。
+每月與每年規則目前**僅供查詢**，單次修改仍限每日／每週。
+不完整或遭截斷的結果不能用來保證某時段有空，詳見[查詢範圍與範例](docs/occurrence-queries.md)。
+
+`timetree_timezone_status` 會檢查執行 MCP server 的 Python 環境是否具備時區資料，
+不需登入，也不讀寫行事曆；可區分支援單次修改的時區及其他被查詢的時區，
+並在資料缺失時提供安裝指引。診斷通過不代表已驗證真實行事曆行為，
+也不會開放原本未支援的修改範圍。
+
+0.4.0 也讓新的場次查詢／單次修改驗證重新載入時區資料，並拒絕 `BYDAY`
+未包含系列起始日星期的每週規則。已記錄操作的結果重播仍在離線完成，不需時區資料。
+這些新增保護尚未包含在 npm 0.3.0。
 
 ### 監控限制
 
@@ -214,10 +236,13 @@ MCP 程序關閉後監控便會停止，不是持續運作的雲端服務；重�
 - [Client 設定](docs/clients.md)：設定範例與驗證狀態。
 - [示範](docs/demo.md)：可重現的操作及驗證界線。
 - [Usage guide](docs/usage.md)：本機開發與監控。
-- [完整工具參考](docs/tools.md)：全部 27 項工具、支援欄位、預設值與環境設定。
+- [完整工具參考](docs/tools.md)：全部 29 個工具、支援欄位、預設值與環境設定。
+- [場次查詢](docs/occurrence-queries.md)：0.4.0 新增的重複規則展開與時區診斷。
+- [隔離日曆測試](docs/isolated-calendar-testing.md)：真實測試前提、目前阻擋與合成案例。
 - [Agent guide](docs/agent-guide.md)：工具流程與錯誤處理。
 - [Companion skill](skills/timetree-mcp/SKILL.md)：供支援 skills 的 agent 使用的操作規範。
 - [Publishing](docs/publishing.md)：npm、版本檢查、MCP Registry metadata 與 GitHub Actions。
+- [搜尋曝光](docs/discoverability.md)：準確的專案描述與搜尋外觀限制。
 - [`server.json`](server.json)：`io.github.ap311036/timetree-mcp` 的 manifest。
 - [安全政策](SECURITY.md) · [貢獻指南](CONTRIBUTING.md)。
 

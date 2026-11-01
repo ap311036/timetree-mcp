@@ -44,7 +44,7 @@ in process memory. The TimeTree web API is unofficial and may change.
   with the correct numeric offset and inspect the returned `timezone`.
 - Reject ambiguous/nonexistent local times, cross-zone intervals, missing
   timezone data, or unsafe DST boundaries; do not bypass these errors.
-- These tools require version 0.3.0 or current source; npm 0.2.4 lacks them.
+- These tools require version 0.3.0 or newer; npm 0.2.4 lacks them.
 
 ## Read limits and other tools
 
@@ -52,7 +52,21 @@ in process memory. The TimeTree web API is unofficial and may change.
   days. Read a wider range when preparing a local-day view.
 - Recurrence rules are not expanded by event reads. A complete sync does not
   prove an agenda is complete or that a time is free.
+- In version 0.4.0, `timetree_list_occurrences` expands a narrow
+  timed DAILY/WEEKLY/MONTHLY/YEARLY subset for at most 93 × 24 hours. Check
+  `complete`, `coverage_complete`, `has_more`, and `unsupported`; never treat
+  an incomplete or truncated result as evidence of availability. Do not pass a
+  synthetic `occurrence_id` to a general event write. Monthly/yearly query
+  support does not authorize or enable monthly/yearly occurrence moves.
+- `timetree_timezone_status` diagnoses local timezone data without credentials
+  or calendar access; available data does not prove an event is editable.
+- Both new read tools require 0.4.0 and are absent from npm 0.3.0. Check
+  `tools/list` to verify availability.
+- Version 0.4.0 also uses fresh timezone-data lookups for new occurrence query/edit
+  validation and rejects weekly `BYDAY` rules that omit the anchor weekday.
+  Do not repair those inputs silently. Saved operation replay remains offline
+  and does not require timezone data; these new guards are not in npm 0.3.0.
 - Inspect `sync_complete`, `incomplete_calendars`, and `skipped_calendars` on
   event reads. Memo reads currently omit these completeness fields.
-- See [the complete tool reference](../../docs/tools.md) for all 27 tools,
+- See [the complete tool reference](../../docs/tools.md) for all 29 tools,
   supported event/memo metadata, comments, labels, member reads, and settings.

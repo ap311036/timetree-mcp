@@ -15,6 +15,8 @@ if __package__ in (None, ""):
 
 from timetree_mcp.monitor import MonitorManager
 from timetree_mcp.occurrence_editor import validate_arguments as validate_occurrence_arguments
+from timetree_mcp.recurrence_query import validate_query_arguments
+from timetree_mcp.timezone_diagnostics import timezone_status, validate_timezone_name
 from timetree_mcp.operations import (
     build_create_event_payload,
     build_memo_payload,
@@ -38,13 +40,15 @@ SUPPORTED_PROTOCOL_VERSIONS = (
     "2026-07-28",
 )
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
-SERVER_VERSION = "0.3.0"
+SERVER_VERSION = "0.4.0"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 READ_TOOLS = {
     "timetree_status",
     "timetree_list_calendars",
     "timetree_list_events",
+    "timetree_list_occurrences",
+    "timetree_timezone_status",
     "timetree_list_memos",
     "timetree_list_event_comments",
     "timetree_get_calendar_labels",
@@ -104,6 +108,7 @@ TOOL_ANNOTATIONS: dict[str, dict[str, bool]] = {
                 "timetree_keychain_status",
                 "timetree_monitor_status",
                 "timetree_occurrence_operation_status",
+                "timetree_timezone_status",
             },
         }
         for name in READ_TOOLS
@@ -292,6 +297,8 @@ class TimeTreeMcpServer:
                 "instructions": (
                     "TimeTree read/write access through the direct HTTPS session. "
                     "Write tools require confirm=true. Monitor notifications use notifications/message."
+                    " list_occurrences expands supported recurring events; incomplete coverage or has_more must never be treated as a free-time guarantee."
+                    " timezone_status diagnoses local timezone data without calendar or credential access."
                     " For one recurring occurrence use get_occurrence_for_edit then move_occurrence with its revision."
                     " Two writes are not atomic: inspect occurrence_operation_status after interruption; never retry with a new ID or roll back automatically."
                 ),
@@ -326,6 +333,16 @@ class TimeTreeMcpServer:
             {"name": "timetree_list_calendars", "description": "Read the calendars available in the authenticated TimeTree account.", "inputSchema": _object_schema({})},
             {"name": "timetree_list_events", "description": "Read TimeTree events overlapping a date range. This tool is read-only.", "inputSchema": _object_schema({"start_date": {"type": "string", "description": "Inclusive YYYY-MM-DD date."}, "end_date": {"type": "string", "description": "Exclusive YYYY-MM-DD date."}, "calendar_id": ID_SCHEMA, "query": {"type": "string"}, "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100}})},
             {"name": "timetree_status", "description": "Read the current direct HTTPS TimeTree authentication status.", "inputSchema": _object_schema({})},
+            {"name": "timetree_list_occurrences", "description": "Read dated occurrences overlapping an explicit window of at most 93 days, including a narrow DAILY/WEEKLY/MONTHLY/YEARLY rule subset. Requires a complete selected-calendar snapshot; unsupported rules, unsafe DST, or truncation mark complete=false. Does not establish edit eligibility or prove a time is free.", "inputSchema": _object_schema({
+                "calendar_id": {"type": "string", "pattern": "^[0-9]{1,40}$"},
+                "start_at": {"type": "string", "description": "Inclusive window start, YYYY-MM-DDTHH:MM:SS±HH:MM. Numeric offset defines an absolute instant; use +00:00 instead of Z."},
+                "end_at": {"type": "string", "description": "Exclusive window end, YYYY-MM-DDTHH:MM:SS±HH:MM; after start and at most 93 days later."},
+                "query": {"type": "string", "maxLength": 500, "description": "Literal title filter."},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+            }, ["calendar_id", "start_at", "end_at"])},
+            {"name": "timetree_timezone_status", "description": "Diagnose installed IANA timezone data locally without credentials, calendar reads, or writes. Checks the five supported occurrence zones by default, or one requested IANA zone. Availability does not imply that occurrence tools support the requested zone.", "inputSchema": _object_schema({
+                "timezone": {"type": "string", "maxLength": 128, "description": "Optional IANA zone name such as Asia/Tokyo; omit to check all supported zones."},
+            })},
             {"name": "timetree_get_occurrence_for_edit", "description": "Read and validate one timed DAILY/WEEKLY occurrence in Asia/Taipei, Asia/Tokyo, Asia/Kolkata, America/New_York or Europe/London. Start/end timezones must match. Returns a calendar revision and timezone; unsafe DST/metadata is rejected and unverified parent links mark it uneditable. No calendar writes.", "inputSchema": _object_schema(occurrence, list(occurrence))},
             {"name": "timetree_move_occurrence", "description": "Move ONLY one preflighted occurrence, preserving duration/metadata. Requires confirm=true, revision and operation_id. TWO NON-ATOMIC writes: create child then exclude original. Partial/uncertain operations remain durably blocked; never retry with a new ID or delete/rollback automatically.", "inputSchema": _object_schema(occurrence_move, list(occurrence_move))},
             {"name": "timetree_occurrence_operation_status", "description": "Read the local occurrence journal by operation_id, including the last dispatch phase and known child UUID. Does not query TimeTree, resume, retry, or unlock an uncertain operation.", "inputSchema": _object_schema({"operation_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,160}$"}}, ["operation_id"])},
@@ -362,6 +379,7 @@ class TimeTreeMcpServer:
             return self._error(request_id, -32602, "tools/call requires a name and object arguments")
 
         operation_by_tool = {
+            "timetree_list_occurrences": "list_occurrences",
             "timetree_get_occurrence_for_edit": "get_occurrence_for_edit",
             "timetree_move_occurrence": "move_occurrence",
             "timetree_occurrence_operation_status": "occurrence_operation_status",
@@ -372,6 +390,12 @@ class TimeTreeMcpServer:
             "timetree_get_calendar_labels": "get_calendar_labels", "timetree_update_calendar_labels": "update_calendar_labels", "timetree_get_calendar_members": "get_calendar_members", "timetree_get_calendar_virtual_members": "get_calendar_virtual_members",
         }
 
+        if name == "timetree_timezone_status":
+            try:
+                self._validate_arguments(name, arguments)
+                return self._tool_success(request_id, timezone_status(arguments.get("timezone")))
+            except Exception as exc:  # noqa: BLE001
+                return self._tool_error(request_id, str(exc))
         if name == "timetree_monitor_status":
             return self._tool_success(request_id, self.monitor.status())
         if name == "timetree_stop_monitor":
@@ -411,6 +435,8 @@ class TimeTreeMcpServer:
             "date", "updated_after", "limit", "query", "start_date", "end_date", "labels", "include_deactivated", "interval_seconds",
         }
         specific = {
+            "timetree_list_occurrences": {"calendar_id", "start_at", "end_at", "limit", "query"},
+            "timetree_timezone_status": {"timezone"},
             "timetree_get_occurrence_for_edit": {"calendar_id", "event_uuid", "occurrence_start_at"},
             "timetree_move_occurrence": {"calendar_id", "event_uuid", "occurrence_start_at", "new_start_at", "expected_revision", "operation_id", "confirm"},
             "timetree_occurrence_operation_status": {"operation_id"},
@@ -438,6 +464,10 @@ class TimeTreeMcpServer:
             raise ValueError(f"Unsupported argument(s): {', '.join(unknown)}")
         if name in WRITE_TOOLS:
             require_confirmation(arguments)
+        if name == "timetree_list_occurrences":
+            validate_query_arguments(arguments)
+        if name == "timetree_timezone_status" and "timezone" in arguments:
+            validate_timezone_name(arguments["timezone"])
         if name in {"timetree_get_occurrence_for_edit", "timetree_move_occurrence"}:
             validate_occurrence_arguments(arguments, write=name == "timetree_move_occurrence")
         if name == "timetree_occurrence_operation_status":

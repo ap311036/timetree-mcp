@@ -1,7 +1,8 @@
 # MCP tool reference
 
-Version 0.3.0 advertises 27 tools through `tools/list`; the three occurrence
-tools are not included in npm 0.2.4.
+Version 0.4.0 advertises 29 tools through `tools/list`. It adds occurrence
+queries and timezone diagnostics to the 27 tools in 0.3.0. The three occurrence
+editing/status tools were introduced in 0.3.0 and are not included in npm 0.2.4.
 Check [release and installation guidance](usage.md) before selecting a version.
 The advertised tool schemas are the exact machine-readable argument reference.
 
@@ -50,8 +51,32 @@ event query results; use the memo tool for memos.
 `timetree_list_events` reports `sync_complete`, `incomplete_calendars`, and
 `skipped_calendars` when applicable. A complete sync can still be truncated by
 `limit`. The memo tool currently does not expose those completeness fields,
-so a returned memo list is not proof of a complete calendar sync. No read tool
-establishes that a time is free: recurrence expansion is not implemented.
+so a returned memo list is not proof of a complete calendar sync. General event
+reads do not expand recurrence rules. An incomplete or truncated agenda cannot
+establish that a time is free.
+
+## Occurrence queries and timezone diagnostics (0.4.0)
+
+These tools require version 0.4.0 or the matching source checkout. They are
+absent from npm 0.3.0.
+
+| Tool | Required arguments | Optional arguments and behavior |
+| --- | --- | --- |
+| `timetree_list_occurrences` | `calendar_id` (numeric string), `start_at`, `end_at` | `query` (literal title filter, at most 500 characters), `limit` (1–500, default 100). Reads a strict complete snapshot, then expands supported timed DAILY/WEEKLY/MONTHLY/YEARLY rules for a window of at most 93 × 24 hours. Reports incomplete coverage and truncation explicitly. |
+| `timetree_timezone_status` | None | `timezone` (relative IANA key, 1–128 characters). Without it, checks the five supported occurrence zones. Local availability diagnostics only; no authentication or calendar access. |
+
+Query boundaries are whole-second ISO strings with explicit numeric offsets,
+`YYYY-MM-DDTHH:MM:SS±HH:MM`; `Z` is not accepted. These are absolute instants and
+may use different offsets. Results overlap the half-open window and include
+UTC/local times, identifiers, and source type. Inspect `complete`,
+`coverage_complete`, `has_more`, and `unsupported`; a returned row is not proof
+that an edit is supported. Monthly/yearly expansion is read-only and does not
+extend the existing move tool's DAILY/WEEKLY rule support.
+
+Timezone diagnostics distinguish data availability from support for occurrence
+tools. System-file availability and `tzdata` package metadata are separate
+observations; the active source and freshness are not inferred. See
+[supported query rules, exact response semantics, and examples](occurrence-queries.md).
 
 ## Events
 
@@ -107,8 +132,9 @@ removals, virtual-member creation, calendar creation/deletion, or sharing tools.
 | `timetree_occurrence_operation_status` | `operation_id` | Reads the local journal only; no live read, resume, retry, or unlock. |
 
 See [supported timezones, DST rejection, exact formats, and recovery
-limits](recurring-events.md). These tools do not add recurrence expansion,
-single-occurrence deletion, or "this and following" changes. The two writes
+limits](recurring-events.md). These editing/status tools do not expand a range;
+use the separate occurrence query tool for that. Single-occurrence deletion
+and "this and following" changes remain unsupported. The two writes
 are non-atomic and have no upstream compare-and-swap. Never retry uncertainty
 with a new operation ID or bypass the durable series lock.
 

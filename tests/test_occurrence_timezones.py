@@ -1,9 +1,12 @@
 """Synthetic timezone and DST contracts; never contact a calendar service."""
 
 import copy
+from pathlib import Path
+import tempfile
 import unittest
 from datetime import datetime, timedelta
 from unittest.mock import patch
+import zoneinfo
 from zoneinfo import ZoneInfoNotFoundError
 
 from timetree_mcp.occurrence_rules import (
@@ -91,9 +94,22 @@ class OccurrenceTimezoneTests(unittest.TestCase):
     def test_missing_timezone_database_has_explicit_error_for_every_zone(self):
         for zone in ("Asia/Taipei", "Asia/Tokyo", "Asia/Kolkata", "America/New_York", "Europe/London"):
             parent = {**fixture(), "start_timezone": zone, "end_timezone": zone}
-            with self.subTest(zone=zone), patch("timetree_mcp.occurrence_rules.ZoneInfo", side_effect=ZoneInfoNotFoundError("missing")):
+            with self.subTest(zone=zone), patch("timetree_mcp.occurrence_rules.ZoneInfo", **{"no_cache.side_effect": ZoneInfoNotFoundError("missing")}):
                 with self.assertRaisesRegex(ValueError, "^occurrence_timezone_data_unavailable$"):
                     validate_parent(parent)
+
+    def test_truncated_installed_timezone_data_has_safe_error(self):
+        original_paths = zoneinfo.TZPATH
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "Asia" / "Taipei"
+            path.parent.mkdir()
+            path.write_bytes(b"TZif\0")
+            try:
+                zoneinfo.reset_tzpath([directory])
+                with self.assertRaisesRegex(ValueError, "^occurrence_timezone_data_unavailable$"):
+                    validate_parent(fixture())
+            finally:
+                zoneinfo.reset_tzpath(original_paths)
 
     def test_local_1980_boundary_in_tokyo_and_pre_boundary_rejection(self):
         parent = zoned("Asia/Tokyo", "1980-01-01T00:00:00+09:00", "1980-01-01T01:00:00+09:00")

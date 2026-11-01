@@ -3,6 +3,8 @@
 import copy
 import hashlib
 import unittest
+from unittest.mock import Mock, patch
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from timetree_mcp.occurrence_rules import (
     assert_occurrence,
@@ -105,6 +107,18 @@ class OccurrenceRuleTests(unittest.TestCase):
         assert_occurrence(parent, parse_taipei("2030-01-14T09:00:00+08:00"))
         with self.assertRaises(ValueError):
             assert_occurrence(parent, parse_taipei("2030-01-15T09:00:00+08:00"))
+
+    def test_weekly_anchor_must_match_explicit_weekdays_before_any_edit(self):
+        parent = fixture(recurrences=["RRULE:FREQ=WEEKLY;BYDAY=TU;COUNT=2"])
+        with self.assertRaisesRegex(ValueError, "recurrence_anchor_mismatch"):
+            assert_occurrence(parent, parse_taipei("2030-01-08T09:00:00+08:00"))
+
+    def test_cached_zone_cannot_mask_missing_installed_data_for_new_edits(self):
+        cached_loader = Mock(return_value=ZoneInfo("Asia/Taipei"))
+        cached_loader.no_cache.side_effect = ZoneInfoNotFoundError("private path")
+        with patch("timetree_mcp.occurrence_rules.ZoneInfo", cached_loader):
+            with self.assertRaisesRegex(ValueError, "^occurrence_timezone_data_unavailable$"):
+                validate_parent(fixture())
 
     def test_until_is_inclusive_in_utc_or_local_calendar_date(self):
         for until in ("20300109", "20300109T010000Z"):

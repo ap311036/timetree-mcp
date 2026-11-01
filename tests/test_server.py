@@ -91,6 +91,8 @@ class ServerProtocolTests(unittest.TestCase):
             "timetree_status": (True, False, True, False),
             "timetree_list_calendars": (True, False, True, True),
             "timetree_list_events": (True, False, True, True),
+            "timetree_list_occurrences": (True, False, True, True),
+            "timetree_timezone_status": (True, False, True, False),
             "timetree_list_memos": (True, False, True, True),
             "timetree_list_event_comments": (True, False, True, True),
             "timetree_get_calendar_labels": (True, False, True, True),
@@ -118,7 +120,7 @@ class ServerProtocolTests(unittest.TestCase):
         }
 
         self.assertEqual(set(by_name), set(expected))
-        self.assertEqual(len(tools), 27)
+        self.assertEqual(len(tools), 29)
         for name, values in expected.items():
             with self.subTest(tool=name):
                 annotations = by_name[name]["annotations"]
