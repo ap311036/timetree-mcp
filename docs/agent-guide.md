@@ -4,16 +4,15 @@ Use this guide when connecting an assistant or coding agent to TimeTree MCP.
 
 ## Start and setup
 
-The published NPM wrapper starts the stdio MCP server:
+The npm wrapper starts the stdio MCP server:
 
 ```bash
-npx --yes timetree-mcp@0.4.0
+npx --yes timetree-mcp@0.5.0
 ```
 
-For normal server launches, email comes from `TIMETREE_EMAIL`, then macOS
-Keychain. Password comes from `TIMETREE_PASSWORD`, then
-`TIMETREE_PASSWORD_FILE`, then Keychain. Clear environment overrides to use only
-Keychain; do not mix credentials from different accounts. Never put a real
+For normal server launches, configure a complete `TIMETREE_EMAIL` and
+`TIMETREE_PASSWORD` or `TIMETREE_PASSWORD_FILE` pair. Clear all three variables
+to use Keychain; do not mix credentials from different accounts. Never put a real
 password in a prompt, MCP tool argument, repository file, or chat message.
 
 From a source checkout on macOS (the npm wrapper does not install these CLI helpers):
@@ -25,10 +24,17 @@ python3 src/timetree_mcp/credentials.py status
 
 `timetree_keychain_status` reports presence only. `timetree_status` reports
 authentication and transport state without returning credential values.
+Since 0.5.0, status checks configuration/presence without reading
+password-file contents or Keychain secrets; `credentials_configured` is not
+proof of valid credentials. Explicit sources skip Keychain and partial/empty
+explicit configurations fail instead of falling back. See
+[credential resolution](clients.md#credential-resolution-and-status).
+The public package needs its own local credentials; do not import a browser
+or private cloud MCP session to make its login check pass.
 
-In version 0.4.0, `timetree_timezone_status` can diagnose IANA
+Since version 0.4.0, `timetree_timezone_status` can diagnose IANA
 data before authentication. It performs no calendar or credential access.
-This and `timetree_list_occurrences` require 0.4.0; npm 0.3.0 has 27 tools and
+This and `timetree_list_occurrences` require 0.4.0 or newer; npm 0.3.0 has 27 tools and
 does not contain them. Inspect `tools/list` instead of assuming availability.
 
 ## Tool workflow
@@ -91,6 +97,19 @@ a baseline; later additions, updates, and removals are emitted as
 the process exits. A restarted process establishes a new baseline. Clients may
 hide logging notifications; delivery does not guarantee a user-visible alert.
 This is not a hosted push service.
+
+Version **0.5.0** accepts only complete, validated snapshots and keeps
+stable pending batches in bounded memory. Inspect `last_check_complete`,
+`last_success`, `pending_batches`, and `delivery_blocked`, as well as
+`last_error`. `not_sent` batches can be retried after a valid source check;
+`unknown` means a write may have occurred, blocks later delivery across scopes,
+and must not be retried automatically. Successful callback/stdio writes only
+increment a local transport count; they do not establish client receipt.
+
+Stop/start preserves this state within the same process. Process restart loses
+it without resolving unknown results. A stop may return `stopping: true` while
+an old read/callback finishes; do not start another worker until it exits.
+These changes are not in npm 0.4.0. See [monitoring state and delivery](monitoring.md).
 
 ## Error handling
 

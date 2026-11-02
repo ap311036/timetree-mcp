@@ -6,17 +6,20 @@ import json
 import math
 import os
 import re
+import stat
 import threading
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from http.cookiejar import CookieJar
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
-from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from .credentials import MacOSKeychainCredentialStore
+from .http_transport import (
+    CSRF_PATH, CSRF_CALENDAR_PATH, CSRF_REDIRECT_TARGETS, LOGIN_DIAGNOSTIC_REASONS,
+    CsrfCalendarRedirect, DirectHttpsTransport, HttpResponse, TimeTreeHttpError, TransportError,
+    failure_reason, http_failure_reason, valid_header_value,
+)
 from .operations import calendar_id_value, to_epoch_millis
 from .occurrence_editor import OccurrenceEditor
 from .occurrence_journal import OccurrenceJournal, default_journal_path
@@ -33,68 +36,27 @@ API_HEADERS = {
     "Referer": f"{BASE_URL}/",
 }
 CSRF_RE = re.compile(r'<meta\s+name=["\']csrf-token["\']\s+content=["\']([^"\']+)', re.I)
+MAX_SYNC_EVENTS = 20_000
+MAX_SYNC_BYTES = 8_000_000
+MAX_CALENDAR_RECORDS = 512
+# Compatibility name only: there is one production HTTP implementation.
+UrllibTransport = DirectHttpsTransport
+
+
+@dataclass(frozen=True, repr=False)
+class _CredentialConfiguration:
+    source: str
+    email: str | None = None
+    password: str | None = None
+    password_file: str | None = None
 
 
 @dataclass
-class HttpResponse:
-    status: int
-    headers: Mapping[str, str]
-    body: Any
-
-
-class TimeTreeHttpError(RuntimeError):
-    def __init__(self, message: str, status: int | None = None):
-        super().__init__(message)
-        self.status = status
-
-
-class _NoMutationRedirect(HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-
-class UrllibTransport:
-    """Small stdlib transport; CookieJar keeps session cookies in memory only."""
-
-    def __init__(self, timeout: int = 60):
-        self.timeout = timeout
-        self.cookie_jar = CookieJar()
-        self.opener = build_opener()
-        self.opener.add_handler(__import__("urllib.request", fromlist=["HTTPCookieProcessor"]).HTTPCookieProcessor(self.cookie_jar))
-        self.mutation_opener = build_opener(_NoMutationRedirect())
-        self.mutation_opener.add_handler(__import__("urllib.request", fromlist=["HTTPCookieProcessor"]).HTTPCookieProcessor(self.cookie_jar))
-
-    def request(
-        self,
-        method: str,
-        url: str,
-        body: Any = None,
-        headers: Mapping[str, str] | None = None,
-        timeout: int | None = None,
-    ) -> HttpResponse:
-        data = None if body is None else json.dumps(body, ensure_ascii=False).encode("utf-8")
-        request_headers = {"User-Agent": os.environ.get("TIMETREE_USER_AGENT", "timetree-mcp/0.2")}
-        request_headers.update(headers or {})
-        request = Request(url, data=data, headers=request_headers, method=method.upper())
-        try:
-            opener = self.opener if method.upper() in {"GET", "HEAD"} else self.mutation_opener
-            response = opener.open(request, timeout=timeout or self.timeout)
-            return HttpResponse(response.status, dict(response.headers.items()), self._decode(response.read()))
-        except HTTPError as exc:
-            return HttpResponse(exc.code, dict(exc.headers.items()), self._decode(exc.read()))
-        except URLError as exc:
-            raise TimeTreeHttpError(f"TimeTree network error: {exc.reason}") from exc
-
-    @staticmethod
-    def _decode(data: bytes) -> Any:
-        text = data.decode("utf-8", errors="replace")
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            return text
-
-    def clear(self) -> None:
-        self.cookie_jar.clear()
+class _SyncBudget:
+    """Accepted raw event payload across one request, not an HTTP download limit."""
+    event_count: int = 0
+    serialized_bytes: int = 2  # JSON array brackets.
+    exhausted: bool = False
 
 
 class TimeTreeHttpReader:
@@ -114,53 +76,129 @@ class TimeTreeHttpReader:
         self.base_url = (base_url or BASE_URL).rstrip("/")
         self.api_base = f"{self.base_url}/api/v1"
         self.v2_api_base = f"{self.base_url}/api/v2"
-        self.transport = transport or UrllibTransport()
+        self.transport = transport or DirectHttpsTransport(origin=self.base_url)
         self.credential_store = credential_store or MacOSKeychainCredentialStore()
         self._authenticated = False
         self._csrf_token: str | None = None
+        self.login_diagnostic: dict[str, str] | None = None
+        self._login_phase = "sign_in"
         self._lock = threading.RLock()
         self._occurrence_journal_path = occurrence_journal_path
         self._occurrence_editor_instance: OccurrenceEditor | None = None
 
     def status(self) -> dict[str, Any]:
         with self._lock:
-            email, password = self._credentials()
+            configuration = self._credential_configuration()
+            keychain: dict[str, bool] = {"checked": False}
+            if configuration.source == "keychain":
+                keychain = {"checked": True, **self.credential_store.status()}
+                configured = bool(keychain.get("email_configured") and keychain.get("password_configured"))
+            elif configuration.password_file is not None:
+                # Presence is not authentication or validation of the file contents.
+                try:
+                    info = Path(configuration.password_file).stat()
+                    configured = (stat.S_ISREG(info.st_mode) and info.st_size > 0
+                                  and os.access(configuration.password_file, os.R_OK))
+                except OSError:
+                    configured = False
+            else:
+                configured = True
             return {
                 "authenticated": self._authenticated,
-                "credentials_configured": bool(email and password),
+                "credentials_configured": configured,
+                "credential_source": configuration.source,
                 "csrf_available": bool(self._csrf_token),
-                "keychain": self.credential_store.status(),
+                "keychain": keychain,
                 "transport": "direct_https",
             }
 
     def login(self) -> dict[str, Any]:
         with self._lock:
-            email, password = self._credentials()
-            if not email or not password:
-                raise RuntimeError("Set TIMETREE_EMAIL and TIMETREE_PASSWORD, or run timetree-credentials set")
-            response = self._request_raw(
-                "PUT",
-                f"{self.api_base}/auth/email/signin",
-                {"uid": email, "password": password, "uuid": uuid.uuid4().hex},
-                csrf=False,
-            )
-            if not 200 <= response.status < 300:
-                self._authenticated = False
-                if response.status in (401, 403):
-                    raise RuntimeError("TimeTree login failed: invalid credentials or account access forbidden")
-                raise TimeTreeHttpError(f"TimeTree login failed with HTTP {response.status}", response.status)
-            self._authenticated = True
+            self.login_diagnostic = None
+            self._login_phase = "sign_in"
+            resolving_credentials = False
+            try:
+                self._reset_session()
+                resolving_credentials = True
+                email, password = self._credentials()
+                if not email or not password:
+                    raise RuntimeError("Set TIMETREE_EMAIL and TIMETREE_PASSWORD, or run timetree-credentials set")
+                resolving_credentials = False
+                response = self._request_raw(
+                    "PUT", f"{self.api_base}/auth/email/signin",
+                    {"uid": email, "password": password, "uuid": uuid.uuid4().hex}, csrf=False,
+                )
+                self._require_auth_success(response)
+                if not isinstance(response.body, dict) or response.body.get("error") is not None:
+                    raise TransportError("invalid_response")
+                self._refresh_csrf()
+                self._authenticated = True
+                return {"authenticated": True, "csrf_available": True, "transport": "direct_https"}
+            except BaseException as error:
+                reason = failure_reason(error)
+                if reason not in LOGIN_DIAGNOSTIC_REASONS or (reason == "csrf_missing" and self._login_phase != "csrf_fetch"):
+                    reason = "internal_error"
+                self.login_diagnostic = {"phase": self._login_phase, "reason": reason}
+                if self._login_phase == "csrf_fetch" and reason == "http_redirect_rejected":
+                    target = getattr(error, "redirect_target", None)
+                    if type(target) is str and target in CSRF_REDIRECT_TARGETS:
+                        self.login_diagnostic["redirect_target"] = target
+                try:
+                    self._reset_session()
+                except BaseException:
+                    pass  # Cleanup must never replace the primary failure/cancellation.
+                if not isinstance(error, Exception):
+                    raise
+                if resolving_credentials and self._known_credential_error(error):
+                    raise
+                if isinstance(error, TransportError):
+                    raise
+                status = error.status if isinstance(error, TimeTreeHttpError) else None
+                raise TransportError(reason, status=status) from None
+
+    def _reset_session(self) -> None:
+        self._authenticated = False
+        self._csrf_token = None
+        clear = getattr(self.transport, "clear", None)
+        if callable(clear):
+            clear()
+
+    def _invalidate_session(self) -> None:
+        try:
+            self._reset_session()
+        except BaseException:
+            pass  # Preserve the failed request's original error or cancellation.
+        finally:
+            self._authenticated = False
             self._csrf_token = None
-            self._refresh_csrf()
-            return {"authenticated": True, "csrf_available": bool(self._csrf_token), "transport": "direct_https"}
+
+    @staticmethod
+    def _known_credential_error(error: Exception) -> bool:
+        messages = {
+            "Set TIMETREE_EMAIL and TIMETREE_PASSWORD, or run timetree-credentials set",
+            "Incomplete or empty TimeTree credentials: provide a complete constructor pair, "
+            "or TIMETREE_EMAIL with TIMETREE_PASSWORD or TIMETREE_PASSWORD_FILE",
+            "Unable to read TIMETREE_PASSWORD_FILE", "macOS Keychain read failed",
+        }
+        return (type(error) is RuntimeError and len(error.args) == 1
+                and type(error.args[0]) is str and error.args[0] in messages)
+
+    @staticmethod
+    def _require_auth_success(response: HttpResponse) -> None:
+        if type(response.status) is not int:
+            raise TransportError("invalid_response")
+        if not 200 <= response.status < 300:
+            raise TransportError(http_failure_reason(response.status), status=response.status)
 
     def logout(self) -> dict[str, Any]:
         with self._lock:
-            clear = getattr(self.transport, "clear", None)
-            if callable(clear):
-                clear()
-            self._authenticated = False
-            self._csrf_token = None
+            try:
+                self._reset_session()
+            except Exception as error:
+                raise TransportError(failure_reason(error)) from None
+            finally:
+                self._authenticated = False
+                self._csrf_token = None
             return {"authenticated": False, "transport": "direct_https"}
 
     def read(self, operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
@@ -230,52 +268,108 @@ class TimeTreeHttpReader:
                 return self._delete_event_comment(arguments)
             raise ValueError(f"Unsupported TimeTree operation: {operation}")
 
+    @staticmethod
+    def _require_credential(value: Any) -> str:
+        if not isinstance(value, str) or not value.strip() or "\x00" in value:
+            raise RuntimeError(
+                "Incomplete or empty TimeTree credentials: provide a complete constructor pair, "
+                "or TIMETREE_EMAIL with TIMETREE_PASSWORD or TIMETREE_PASSWORD_FILE"
+            )
+        return value
+
+    def _credential_configuration(self) -> _CredentialConfiguration:
+        """Choose one complete source without opening a password file or Keychain."""
+        if self.email is not None or self.password is not None:
+            return _CredentialConfiguration(
+                "constructor", self._require_credential(self.email).strip(),
+                self._require_credential(self.password),
+            )
+        environment = os.environ
+        if any(name in environment for name in ("TIMETREE_EMAIL", "TIMETREE_PASSWORD", "TIMETREE_PASSWORD_FILE")):
+            email = self._require_credential(environment.get("TIMETREE_EMAIL")).strip()
+            if "TIMETREE_PASSWORD" in environment:
+                return _CredentialConfiguration(
+                    "environment", email, self._require_credential(environment["TIMETREE_PASSWORD"]),
+                )
+            return _CredentialConfiguration(
+                "password_file", email,
+                password_file=self._require_credential(environment.get("TIMETREE_PASSWORD_FILE")),
+            )
+        return _CredentialConfiguration("keychain")
+
     def _credentials(self) -> tuple[str | None, str | None]:
-        password = self.password or os.environ.get("TIMETREE_PASSWORD")
-        if not password:
-            password_file = os.environ.get("TIMETREE_PASSWORD_FILE")
-            if password_file:
-                try:
-                    password = Path(password_file).read_text(encoding="utf-8").strip()
-                except OSError as exc:
-                    raise RuntimeError("Unable to read TIMETREE_PASSWORD_FILE") from exc
-        keychain_email, keychain_password = self.credential_store.read()
-        return (
-            self.email or os.environ.get("TIMETREE_EMAIL") or keychain_email,
-            password or keychain_password,
-        )
+        configuration = self._credential_configuration()
+        if configuration.source == "keychain":
+            return self.credential_store.read()
+        password = configuration.password
+        if configuration.password_file is not None:
+            try:
+                password = Path(configuration.password_file).read_text(encoding="utf-8").strip()
+            except (OSError, UnicodeError) as exc:
+                raise RuntimeError("Unable to read TIMETREE_PASSWORD_FILE") from exc
+            password = self._require_credential(password)
+        return configuration.email, password
 
     def _ensure_authenticated(self) -> None:
         if not self._authenticated:
             self.login()
 
     def _refresh_csrf(self) -> None:
-        response = self._request_raw("GET", f"{self.base_url}/", csrf=False)
-        self._csrf_token = self._header(response.headers, "x-csrf-token")
-        if not self._csrf_token and isinstance(response.body, str):
-            match = CSRF_RE.search(response.body)
-            if match:
-                self._csrf_token = match.group(1)
+        self._login_phase = "csrf_fetch"
+        self._csrf_token = None
+        try:
+            response = self._request_raw("GET", f"{self.base_url}{CSRF_PATH}", csrf=False)
+            if type(response) is CsrfCalendarRedirect:
+                response = self._request_raw("GET", f"{self.base_url}{CSRF_CALENDAR_PATH}", csrf=False)
+            self._require_auth_success(response)
+            token = self._header(response.headers, "x-csrf-token")
+            if token is None or isinstance(token, str) and not token.strip():
+                if isinstance(response.body, str):
+                    match = CSRF_RE.search(response.body)
+                    if match:
+                        token = match.group(1)
+            if token is None or isinstance(token, str) and not token.strip():
+                raise TransportError("csrf_missing")
+            if not self._valid_csrf_token(token):
+                raise TransportError("invalid_response")
+            self._csrf_token = token
+        except BaseException:
+            self._csrf_token = None
+            raise
 
-    def _request_raw(self, method: str, url: str, body: Any = None, csrf: bool = False) -> HttpResponse:
-        headers = dict(API_HEADERS)
-        if csrf:
-            if not self._csrf_token:
-                self._refresh_csrf()
-            if not self._csrf_token:
-                raise RuntimeError("TimeTree CSRF token unavailable; login again")
-            headers["X-CSRF-Token"] = self._csrf_token
-        response = self.transport.request(method, url, body, headers, 60)
-        response_token = self._header(response.headers, "x-csrf-token")
-        if response_token:
-            self._csrf_token = response_token
-        return response
+    @staticmethod
+    def _valid_csrf_token(token: Any) -> bool:
+        return valid_header_value(token) and bool(token.strip())
+
+    def _request_raw(self, method: str, url: str, body: Any = None,
+                     csrf: bool = False) -> HttpResponse | CsrfCalendarRedirect:
+        try:
+            headers = {**API_HEADERS, "Referer": f"{self.base_url}/"}
+            if csrf:
+                if not self._csrf_token:
+                    self._refresh_csrf()
+                if not self._csrf_token:
+                    raise RuntimeError("TimeTree CSRF token unavailable; login again")
+                headers["X-CSRF-Token"] = self._csrf_token
+            response = self.transport.request(method, url, body, headers, 60)
+            if type(response) is CsrfCalendarRedirect:
+                if method == "GET" and url == f"{self.base_url}{CSRF_PATH}" and body is None and not csrf:
+                    return response
+                raise TransportError("http_redirect_rejected")
+            if type(response.status) is int and response.status in (401, 403):
+                self._invalidate_session()
+                return response
+            response_token = self._header(response.headers, "x-csrf-token")
+            if type(response.status) is int and 200 <= response.status < 300 and self._valid_csrf_token(response_token):
+                self._csrf_token = response_token
+            return response
+        except BaseException:
+            self._invalidate_session()
+            raise
 
     def _request_json(self, method: str, url: str, body: Any = None, csrf: bool = False) -> Any:
         response = self._request_raw(method, url, body, csrf)
         if not 200 <= response.status < 300:
-            if response.status in (401, 403):
-                self._authenticated = False
             raise TimeTreeHttpError(f"TimeTree {method} request failed with HTTP {response.status}", response.status)
         return response.body
 
@@ -300,29 +394,108 @@ class TimeTreeHttpReader:
 
     def _get_calendars(self) -> list[dict[str, Any]]:
         body = self._body_dict(self._request_json("GET", f"{self.api_base}/calendars?since=0"))
-        calendars = body.get("calendars") or []
         result = []
-        for calendar in calendars:
-            attributes = calendar.get("attributes") if isinstance(calendar, dict) else None
-            source = attributes if isinstance(attributes, dict) else calendar
+        for source in self._calendar_records(body):
             deactivated_at = source.get("deactivated_at")
-            if deactivated_at is not None:
-                if isinstance(deactivated_at, bool) or not isinstance(deactivated_at, (int, float)) or not math.isfinite(deactivated_at):
-                    raise ValueError("Invalid TimeTree calendar deactivated_at")
-                if deactivated_at != 0:
-                    continue
+            if deactivated_at not in (None, 0):
+                continue
             result.append({
-                "id": str(calendar.get("id", source.get("id", ""))),
+                "id": self._response_id(source["id"]),
                 "alias_code": source.get("alias_code"),
                 "name": source.get("name", source.get("title", "")),
             })
-        return [calendar for calendar in result if calendar["id"]]
+        return result
 
-    def _sync_raw_events(self, calendar_id: str, *, strict: bool = False) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+    @staticmethod
+    def _response_id(value: Any) -> str:
+        if (type(value) not in (str, int) or not str(value)
+                or str(value).strip() != str(value) or len(str(value)) > 512
+                or any(ord(c) < 32 or ord(c) == 127 or c in "/\\?#%" for c in str(value))):
+            raise ValueError("invalid_sync_identity")
+        return str(value)
+
+    @classmethod
+    def _response_fields(cls, item: Any) -> dict[str, Any]:
+        if not isinstance(item, dict) or not isinstance(item.get("attributes", {}), dict):
+            raise ValueError("invalid_sync_record")
+        attributes = item.get("attributes", {})
+        for key in ("id", "uuid", "calendar_id"):
+            if key in attributes and key in item and not (attributes[key] is None and item[key] is None):
+                if cls._response_id(attributes[key]) != cls._response_id(item[key]):
+                    raise ValueError("conflicting_sync_identity")
+        return {**attributes, **{key: value for key, value in item.items() if key != "attributes"}}
+
+    @classmethod
+    def _calendar_records(cls, body: dict[str, Any]) -> list[dict[str, Any]]:
+        cls._require_complete_metadata(body)
+        if (not isinstance(body.get("calendars"), list)
+                or ("chunk" in body and (type(body["chunk"]) not in (bool, int) or body["chunk"] != 0))):
+            raise ValueError("invalid_calendar_response")
+        records = body["calendars"]
+        if len(records) > MAX_CALENDAR_RECORDS:
+            raise ValueError("calendar_index_capacity_exceeded")
+        result, seen = [], set()
+        for item in records:
+            fields = cls._response_fields(item)
+            identity = cls._response_id(fields.get("id"))
+            if identity in seen:
+                raise ValueError("duplicate_calendar_identity")
+            seen.add(identity)
+            deactivated = fields.get("deactivated_at")
+            if deactivated is not None and (type(deactivated) not in (int, float) or not math.isfinite(deactivated)):
+                raise ValueError("Invalid TimeTree calendar deactivated_at")
+            result.append(fields)
+        try:
+            size = len(json.dumps(records, allow_nan=False).encode("utf-8"))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("invalid_calendar_response") from exc
+        if size > MAX_SYNC_BYTES:
+            raise ValueError("calendar_index_capacity_exceeded")
+        return result
+
+    @classmethod
+    def _event_identity_keys(cls, event: Any, calendar_id: str) -> set[tuple[str, str]]:
+        fields = cls._response_fields(event)
+        keys = {(key, cls._response_id(fields[key])) for key in ("uuid", "id")
+                if fields.get(key) is not None and fields[key] != ""}
+        if not keys:
+            raise ValueError("missing_event_identity")
+        calendar_refs = []
+        if fields.get("calendar_id") is not None:
+            calendar_refs.append(fields["calendar_id"])
+        if fields.get("calendar") is not None:
+            if not isinstance(fields["calendar"], dict):
+                raise ValueError("invalid_event_calendar")
+            calendar_refs.append(fields["calendar"].get("id"))
+        relationships = fields.get("relationships")
+        if isinstance(relationships, dict) and "calendar" in relationships:
+            relation = relationships["calendar"]
+            if not isinstance(relation, dict) or not isinstance(relation.get("data"), dict):
+                raise ValueError("invalid_event_calendar")
+            calendar_refs.append(relation["data"].get("id"))
+        if any(cls._response_id(value) != calendar_id for value in calendar_refs):
+            raise ValueError("cross_calendar_sync_event")
+        return keys
+
+    def _sync_raw_events(self, calendar_id: str, *, strict: bool = False,
+                         budget: _SyncBudget | None = None) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         all_events: list[dict[str, Any]] = []
+        calendar_bytes = 2
+        seen_event_keys: set[tuple[str, str]] = set()
         since = 0
         requested_cursors = set()
         for page in range(1, 26):
+            issue = {"calendar_id": str(calendar_id), "pages": page}
+
+            def incomplete(reason: str):
+                if strict:
+                    raise ValueError("occurrence_snapshot_incomplete")
+                return all_events, {**issue, "reason": reason}
+
+            if budget is not None and (budget.exhausted or budget.event_count >= MAX_SYNC_EVENTS
+                                       or budget.serialized_bytes >= MAX_SYNC_BYTES):
+                budget.exhausted = True
+                return incomplete("request_capacity_exceeded")
             requested_cursors.add(since)
             response = self._request_raw("GET", f"{self.api_base}/calendar/{calendar_id}/events/sync?since={since}")
             body = self._body_dict(response.body)
@@ -331,22 +504,48 @@ class TimeTreeHttpReader:
                 if response.status == 400 and isinstance(error, dict) and error.get("code") == -425:
                     return all_events, {"calendar_id": str(calendar_id), "status": response.status, "error_code": -425, "reason": "TimeTree calendar sync unavailable", "pages": page}
                 raise TimeTreeHttpError(f"TimeTree GET request failed with HTTP {response.status}", response.status)
-            if strict:
+            try:
                 self._require_complete_metadata(body)
-                if (not isinstance(body.get("events"), list)
-                        or type(body.get("chunk")) not in (bool, int)
-                        or body["chunk"] not in (False, True, 0, 1)
-                        or any(not isinstance(e, dict) for e in body["events"])):
-                    raise ValueError("invalid_occurrence_sync_response")
-            events = body.get("events") or []
-            all_events.extend(event for event in events if isinstance(event, dict))
-            if strict and (len(all_events) > 20000 or len(json.dumps(all_events, allow_nan=False).encode("utf-8")) > 8_000_000):
-                raise ValueError("occurrence_snapshot_capacity_exceeded")
+            except ValueError:
+                return incomplete("incomplete_sync_metadata")
+            if (not isinstance(body.get("events"), list)
+                    or type(body.get("chunk")) not in (bool, int)
+                    or body["chunk"] not in (False, True, 0, 1)):
+                return incomplete("invalid_sync_response")
+            events = body["events"]
+            if budget is not None and budget.event_count + len(events) > MAX_SYNC_EVENTS:
+                budget.exhausted = True
+                return incomplete("request_capacity_exceeded")
+            if len(all_events) + len(events) > MAX_SYNC_EVENTS:
+                return incomplete("snapshot_capacity_exceeded")
+            page_keys: set[tuple[str, str]] = set()
+            try:
+                for event in events:
+                    keys = self._event_identity_keys(event, str(calendar_id))
+                    if keys & seen_event_keys or keys & page_keys:
+                        raise ValueError("duplicate_event_identity")
+                    page_keys.update(keys)
+                page_bytes = len(json.dumps(events, allow_nan=False).encode("utf-8")) - 2
+            except (TypeError, ValueError, OverflowError):
+                return incomplete("invalid_sync_event")
+            next_calendar_bytes = calendar_bytes + page_bytes + (2 if all_events and events else 0)
+            if budget is not None:
+                next_request_bytes = budget.serialized_bytes + page_bytes + (2 if budget.event_count and events else 0)
+                if next_request_bytes > MAX_SYNC_BYTES:
+                    budget.exhausted = True
+                    return incomplete("request_capacity_exceeded")
+            if next_calendar_bytes > MAX_SYNC_BYTES:
+                return incomplete("snapshot_capacity_exceeded")
+            all_events.extend(events)
+            calendar_bytes = next_calendar_bytes
+            seen_event_keys.update(page_keys)
+            if budget is not None:
+                budget.event_count += len(events)
+                budget.serialized_bytes = next_request_bytes
             next_since = body.get("since")
             if not body.get("chunk"):
                 return all_events, None
             # TimeTree can return a decreasing cursor; treat it as an opaque token.
-            issue = {"calendar_id": str(calendar_id), "pages": page}
             if isinstance(next_since, bool) or not isinstance(next_since, (int, float)) or not math.isfinite(next_since) or next_since != int(next_since):
                 return all_events, {**issue, "reason": "invalid_cursor"}
             since = int(next_since)
@@ -357,7 +556,11 @@ class TimeTreeHttpReader:
     @staticmethod
     def _require_complete_metadata(body: dict[str, Any]) -> None:
         if (not isinstance(body, dict) or body.get("sync_complete", True) is not True
-                or any(body.get(key) for key in ("error", "truncated", "has_more", "skipped_calendars", "incomplete_calendars"))):
+                or ("error" in body and body["error"] is not None)
+                or any(key in body and (type(body[key]) not in (bool, int) or body[key] != 0)
+                       for key in ("truncated", "has_more", "incomplete"))
+                or any(key in body and (not isinstance(body[key], list) or body[key])
+                       for key in ("skipped_calendars", "incomplete_calendars", "skipped_unreadable_events"))):
             raise ValueError("occurrence_snapshot_incomplete")
 
     def _occurrence_editor(self) -> OccurrenceEditor:
@@ -372,17 +575,8 @@ class TimeTreeHttpReader:
     def _occurrence_snapshot(self, calendar_id: str) -> list[dict[str, Any]]:
         self._ensure_authenticated()
         body = self._body_dict(self._request_json("GET", f"{self.api_base}/calendars?since=0"))
-        self._require_complete_metadata(body)
-        if not isinstance(body.get("calendars"), list):
-            raise ValueError("invalid_occurrence_calendar_response")
         matches = []
-        for item in body["calendars"]:
-            if not isinstance(item, dict):
-                raise ValueError("invalid_occurrence_calendar_response")
-            attributes = item.get("attributes", {})
-            if not isinstance(attributes, dict):
-                raise ValueError("invalid_occurrence_calendar_response")
-            calendar = {**attributes, **item}
+        for calendar in self._calendar_records(body):
             if str(calendar.get("id")) == calendar_id:
                 matches.append(calendar)
         if len(matches) != 1:
@@ -419,6 +613,30 @@ class TimeTreeHttpReader:
         self._request_json("PUT", f"{self.api_base}/calendar/{calendar_id}/event/{event_uuid}",
                            {"recurrences": rules, "silent": True}, csrf=True)
 
+    @classmethod
+    def _normalized_sync_event(cls, raw: dict[str, Any], calendar_id: str,
+                               calendar_name: str | None) -> dict[str, Any]:
+        fields = cls._response_fields(raw)
+        if "all_day" in fields and type(fields["all_day"]) is not bool:
+            raise ValueError("invalid_event_normalization")
+        fields["calendar_id"] = calendar_id
+        event = normalize_event(fields, calendar_name)
+        bounds = []
+        for key in ("start", "end"):
+            value = event[key]
+            if not isinstance(value, str):
+                raise ValueError("invalid_event_normalization")
+            if event["all_day"] and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+                bounds.append(date.fromisoformat(value))
+            else:
+                instant = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if instant.tzinfo is None or instant.utcoffset() is None:
+                    raise ValueError("invalid_event_normalization")
+                bounds.append(instant)
+        if type(bounds[0]) is not type(bounds[1]) or bounds[1] < bounds[0]:
+            raise ValueError("invalid_event_normalization")
+        return event
+
     def _sync_events_result(self, calendar_id: Any = None) -> dict[str, Any]:
         calendars = self._get_calendars()
         requested = calendar_id_value(calendar_id) if calendar_id is not None else None
@@ -429,16 +647,24 @@ class TimeTreeHttpReader:
         events: list[dict[str, Any]] = []
         skipped_calendars: list[dict[str, Any]] = []
         incomplete_calendars: list[dict[str, Any]] = []
-        for calendar in selected:
-            raw_events, issue = self._sync_raw_events(calendar["id"])
+        budget = _SyncBudget()
+        for index, calendar in enumerate(selected):
+            if budget.exhausted or budget.event_count >= MAX_SYNC_EVENTS or budget.serialized_bytes >= MAX_SYNC_BYTES:
+                incomplete_calendars.extend({"calendar_id": item["id"], "reason": "request_capacity_exceeded",
+                                             "not_attempted": True} for item in selected[index:])
+                break
+            raw_events, issue = self._sync_raw_events(calendar["id"], budget=budget)
             if issue:
                 if not raw_events and issue.get("status") == 400:
                     skipped_calendars.append(issue)
                 else:
                     incomplete_calendars.append(issue)
             for raw in raw_events:
-                calendar_event_id = raw.get("calendar_id", calendar["id"])
-                events.append(normalize_event(raw, names.get(str(calendar_event_id))))
+                try:
+                    events.append(self._normalized_sync_event(raw, calendar["id"], names.get(calendar["id"])))
+                except (ValueError, TypeError, OverflowError):
+                    if not any(item["calendar_id"] == calendar["id"] for item in incomplete_calendars):
+                        incomplete_calendars.append({"calendar_id": calendar["id"], "reason": "invalid_event_normalization"})
         result = {"authenticated": True, "calendars": calendars, "events": events, "sync_complete": not (skipped_calendars or incomplete_calendars)}
         if incomplete_calendars:
             result["incomplete_calendars"] = incomplete_calendars
@@ -467,7 +693,12 @@ class TimeTreeHttpReader:
             memos = [event for event in memos if event.get("updated_at") and to_epoch_millis(event["updated_at"]) > cutoff]
         if arguments.get("limit") is not None:
             memos = memos[: arguments["limit"]]
-        return {"calendar_id": str(arguments["calendar_id"]), "memos": memos, "count": len(memos)}
+        result = {"calendar_id": str(arguments["calendar_id"]), "memos": memos,
+                  "count": len(memos), "sync_complete": snapshot["sync_complete"]}
+        for key in ("skipped_calendars", "incomplete_calendars"):
+            if snapshot.get(key):
+                result[key] = snapshot[key]
+        return result
 
     def _list_event_comments(self, arguments: dict[str, Any]) -> dict[str, Any]:
         calendar_id = calendar_id_value(arguments["calendar_id"])

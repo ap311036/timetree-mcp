@@ -134,6 +134,35 @@ class ServerProtocolTests(unittest.TestCase):
                     ),
                 )
 
+    def test_runtime_argument_allowlists_match_advertised_tool_properties(self):
+        for tool in self.server.tool_definitions():
+            with self.subTest(tool=tool["name"]):
+                self.assertEqual(
+                    self.server._allowed_arguments(tool["name"]),
+                    set(tool["inputSchema"]["properties"]),
+                )
+
+    def test_event_writes_reject_unadvertised_ignored_fields_before_reader(self):
+        cases = {
+            "timetree_create_event": {
+                "calendar_id": "personal", "title": "Created",
+                "start_at": "2030-01-07T01:00:00Z", "end_at": "2030-01-07T02:00:00Z",
+                "confirm": True,
+            },
+            "timetree_update_event": {
+                "calendar_id": "personal", "event_uuid": "event-demo", "title": "Updated", "confirm": True,
+            },
+        }
+        for name, arguments in cases.items():
+            for field, value in (("silent", True), ("silent", False), ("content", "Ignored text")):
+                with self.subTest(tool=name, field=field, value=value):
+                    self.browser.calls.clear()
+                    response = self.server.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                        "params": {"name": name, "arguments": {**arguments, field: value}}})
+                    self.assertTrue(response["result"]["isError"])
+                    self.assertEqual(response["result"]["structuredContent"]["error"], f"Unsupported argument(s): {field}")
+                    self.assertEqual(self.browser.calls, [])
+
     def test_status_tool_returns_structured_json_and_calls_browser(self):
         response = self.server.handle(
             {

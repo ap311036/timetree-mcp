@@ -11,6 +11,11 @@ Use the `timetree-mcp` MCP tools for direct HTTPS access to TimeTree.
 
 - Never request or repeat a TimeTree password in chat.
 - Prefer macOS Keychain or `TIMETREE_PASSWORD_FILE` over `TIMETREE_PASSWORD`.
+- Configure a complete email/password source. Version 0.5.0 rejects
+  partial/empty explicit settings instead of borrowing values from Keychain;
+  status only checks presence and is not proof of a valid login.
+- Do not import browser cookies or a private cloud MCP session into the public
+  server. Its end-to-end login check needs locally configured credentials.
 - Check the target calendar and event before any mutation.
 - Every write requires `confirm: true`.
 - Require a fresh confirmation before irreversible deletion.
@@ -25,6 +30,15 @@ Use the `timetree-mcp` MCP tools for direct HTTPS access to TimeTree.
 4. Explain the exact proposed event, memo, comment, or label change.
 5. Call the corresponding write tool with `confirm: true` only after approval.
 6. Use `timetree_monitor_status` when monitoring is enabled.
+
+For the monitor in 0.5.0, inspect completeness, `pending_batches`, and
+`delivery_blocked`. Only complete validated snapshots advance the baseline.
+`not_sent` batches may be retried later; `unknown` batches block delivery and
+must not be automatically resent. Successful transport writes do not prove
+client display or user receipt. Stop/start retains state only within one
+process; restart discards it without resolving uncertainty. A timed-out stop
+may still have a live worker. See [monitoring semantics](../../docs/monitoring.md).
+These changes are not in npm 0.4.0.
 
 The server uses a direct HTTPS session by default. Cookies and CSRF tokens stay
 in process memory. The TimeTree web API is unofficial and may change.
@@ -60,13 +74,14 @@ in process memory. The TimeTree web API is unofficial and may change.
   support does not authorize or enable monthly/yearly occurrence moves.
 - `timetree_timezone_status` diagnoses local timezone data without credentials
   or calendar access; available data does not prove an event is editable.
-- Both new read tools require 0.4.0 and are absent from npm 0.3.0. Check
+- Both new read tools require 0.4.0 or newer and are absent from npm 0.3.0. Check
   `tools/list` to verify availability.
 - Version 0.4.0 also uses fresh timezone-data lookups for new occurrence query/edit
   validation and rejects weekly `BYDAY` rules that omit the anchor weekday.
   Do not repair those inputs silently. Saved operation replay remains offline
   and does not require timezone data; these new guards are not in npm 0.3.0.
 - Inspect `sync_complete`, `incomplete_calendars`, and `skipped_calendars` on
-  event reads. Memo reads currently omit these completeness fields.
+  event reads. npm 0.4.0 memo reads omit these fields; 0.5.0
+  includes them on memo reads too.
 - See [the complete tool reference](../../docs/tools.md) for all 29 tools,
   supported event/memo metadata, comments, labels, member reads, and settings.

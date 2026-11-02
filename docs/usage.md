@@ -5,12 +5,12 @@ Claude Desktop, Cursor, and the distinction between ChatGPT desktop local MCP
 and ChatGPT web remote apps. It includes requirements, credential setup,
 Windows caveats, and the exact scope of verification.
 
-## Published npm package
+## npm package
 
 With Node.js 18+ and a separately installed Python 3.10+:
 
 ```bash
-npx --yes timetree-mcp@0.4.0
+npx --yes timetree-mcp@0.5.0
 ```
 
 This pins the version documented here. Check release notes before choosing
@@ -18,8 +18,9 @@ a newer version. The wrapper starts the bundled Python stdio server; it does
 not install Python or open an interactive terminal interface. Your MCP client
 should launch the command and communicate over stdin/stdout.
 
-Version 0.4.0 has 29 tools, including occurrence queries and timezone
-diagnostics. The older 0.3.0 package has 27 tools and lacks those two additions.
+Version 0.5.0 has 29 tools and improves authentication, synchronization
+completeness, and monitoring state. Occurrence queries and timezone diagnostics
+were introduced in 0.4.0; the older 0.3.0 package has 27 tools and lacks them.
 
 Use `TIMETREE_PYTHON` if the right Python executable is not on the client's
 `PATH`. Never put your TimeTree password into the command or MCP arguments.
@@ -64,7 +65,7 @@ These shell examples use macOS/Linux syntax. On Windows, use `.venv\Scripts\pyth
 and absolute Windows paths as described in the [client guide](clients.md#windows-and-executable-paths).
 
 `timetree_list_occurrences` and `timetree_timezone_status` are included in
-0.4.0 and its source checkout. See the [occurrence query and timezone diagnostic
+0.4.0 and newer versions. See the [occurrence query and timezone diagnostic
 guide](occurrence-queries.md) for their read-only scope and limits.
 
 ## Read and write workflow
@@ -118,10 +119,46 @@ Monitoring has practical limits:
   desktop alert depends on the client; delivery to the user is not guaranteed.
 - Polling compares snapshots, so changes made and reverted between polls can
   be missed. Calendar selection and upstream sync failures affect what can be
-  observed. The monitor currently compares partial snapshots too, so an apparent
+  observed. The npm 0.4.0 monitor compares partial snapshots too, so an apparent
   removal may be a sync failure; verify it with a fresh read in TimeTree.
-- Check monitor status and make a separate event read to inspect `sync_complete`;
-  monitor status does not include it. Silence is not proof that nothing changed.
+- In npm 0.4.0, make a separate event read to inspect `sync_complete`; monitor
+  status does not expose that completeness marker. Silence is not proof that
+  nothing changed.
+
+Version **0.5.0** refuses incomplete or invalid snapshots, retains
+the successful baseline, and queues stable change batches in bounded memory.
+Its expanded status distinguishes attempts from accepted complete checks and
+successful local transport writes. Known-unsent batches can be tried later;
+uncertain writes remain pending and block subsequent delivery without automatic
+retry. Stop/start preserves process state, but restarting loses it and does
+not reconcile uncertainty. The worker remains active/stopping after a stop
+timeout and a second poller cannot start. See the [full monitoring contract](monitoring.md).
+These changes are not included in `timetree-mcp@0.4.0`.
+
+Credential handling changed in 0.5.0: a complete explicit pair avoids
+Keychain, partial/empty explicit configuration fails, and status only checks
+presence. Follow [credential resolution](clients.md#credential-resolution-and-status)
+when configuring the server. Version 0.5.0 uses the same production
+authentication and HTTPS core in the ordinary reader and E2E guard. Review the
+[transport compatibility changes](clients.md#shared-authentication-and-transport),
+including explicit proxy rejection, HTTPS-origin validation, response limits,
+and the single validated `/signin` to fixed `/calendars` bootstrap; other
+redirects are rejected. npm 0.4.0 is unchanged.
+The [read-only stdio runner](e2e-runner.md) supports an operator-owned
+Terminal flow with hidden, temporary credentials and a reviewed private plan.
+Its shared authentication still sits behind calendar-read guards and fixture
+filtering. The owner reported a completed live stdio run with all eight planned
+fixture checks passing. At the pre-release check, code hashes matched the reviewed code and the
+approved plan hash was unchanged; the report lacks version/source/plan
+fingerprints, so the actually loaded files cannot be independently bound to the
+release artifact retroactively. This read-only success does not verify npm
+installation or its original entry point, a GUI, alternate credential discovery,
+live writes, or notification delivery. Offline tests and independent review of
+the shared authentication and bounded bootstrap are also complete. No additional
+run is requested. The six fixtures were deleted and checked absent; the old
+plan cannot be rerun. Any later run needs new approved fixtures, a reviewed plan,
+and separate authorization.
+Another integration's session is not reused.
 
 The [offline demo](demo.md) shows the confirmation gate and monitor behavior
 with fictional fixtures, without logging into a real TimeTree account.

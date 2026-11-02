@@ -1,7 +1,7 @@
 # MCP tool reference
 
-Version 0.4.0 advertises 29 tools through `tools/list`. It adds occurrence
-queries and timezone diagnostics to the 27 tools in 0.3.0. The three occurrence
+Version 0.5.0 advertises 29 tools through `tools/list`. Version 0.4.0 introduced
+occurrence queries and timezone diagnostics, adding to the 27 tools in 0.3.0. The three occurrence
 editing/status tools were introduced in 0.3.0 and are not included in npm 0.2.4.
 Check [release and installation guidance](usage.md) before selecting a version.
 The advertised tool schemas are the exact machine-readable argument reference.
@@ -20,6 +20,13 @@ arguments accept strings or integers; occurrence tools require numeric strings.
 | `timetree_login` | None | Authenticates over HTTPS using locally configured credentials. |
 | `timetree_logout` | None | Clears in-memory cookies and the CSRF token. Does not remove stored credentials or the occurrence journal. |
 | `timetree_keychain_status` | None | Reports whether macOS Keychain email/password entries exist, without their values. |
+
+**Since 0.5.0:** `timetree_status` checks configuration/presence without
+reading password-file contents or Keychain secrets. It reports
+`credential_source`; a complete explicit pair skips Keychain and reports
+`keychain.checked: false`. A partial or empty explicit pair is rejected instead
+of mixing sources. `credentials_configured` does not establish a valid password
+or a successful login. See [the exact source/version rules](clients.md#credential-resolution-and-status).
 
 The local `timetree-credentials set/status/clear` helper is a separate CLI, not
 an MCP tool. Source installation provides this command; npm does not install
@@ -50,14 +57,33 @@ event query results; use the memo tool for memos.
 
 `timetree_list_events` reports `sync_complete`, `incomplete_calendars`, and
 `skipped_calendars` when applicable. A complete sync can still be truncated by
-`limit`. The memo tool currently does not expose those completeness fields,
-so a returned memo list is not proof of a complete calendar sync. General event
+`limit`. In npm 0.4.0, the memo tool does not expose those completeness fields,
+so a returned memo list is not proof of a complete calendar sync. The
+**0.5.0** adds the same `sync_complete`, `incomplete_calendars`, and
+`skipped_calendars` metadata to memo reads. General event
 reads do not expand recurrence rules. An incomplete or truncated agenda cannot
 establish that a time is free.
 
+The direct reader in 0.5.0 also treats malformed/incomplete event pages,
+invalid or duplicate identities, and cross-calendar records as incomplete.
+It preserves earlier accepted pages and returns diagnostics; strict occurrence
+reads reject incomplete data entirely. Calendar-index failures cannot establish
+a trustworthy scope. These source checks do not make an upstream snapshot
+atomic or remove result limits.
+
+The reader in 0.5.0 shares a request-wide acquisition budget across pages
+and calendars: 20,000 accepted raw events and 8,000,000 serialized raw-event
+bytes, plus a 512-record calendar-index cap. A page/calendar budget limit stops
+further acquisition and preserves already accepted events with
+`sync_complete: false` and `incomplete_calendars` reason
+`request_capacity_exceeded`; calendars not yet requested have
+`not_attempted: true`. These caps bound collected records, not raw HTTP download
+size, CPU time, or total process memory. Monitor snapshot/state limits are
+[separate](monitoring.md#complete-reads-establish-the-baseline).
+
 ## Occurrence queries and timezone diagnostics (0.4.0)
 
-These tools require version 0.4.0 or the matching source checkout. They are
+These tools require version 0.4.0 or newer. They are
 absent from npm 0.3.0.
 
 | Tool | Required arguments | Optional arguments and behavior |
@@ -93,6 +119,11 @@ Create/update fields include `title`, `all_day`, `start_at`, `end_at`,
 `title` and `checked`. Existing file UUIDs can be referenced; there is no file
 upload/download tool. Use metadata reads to obtain label/member identifiers.
 
+Empty `attendees` or `alerts` do not guarantee that TimeTree will suppress
+calendar activity or other members' notifications. TimeTree says notification
+settings are [controlled by each member](https://support.timetreeapp.com/hc/en-us/articles/204254119-Stop-notifications-for-a-calendar).
+Create/update tools do not provide a supported `silent` parameter.
+
 General event times accept ISO-8601 strings or Unix **milliseconds**. Prefer
 explicit offsets and IANA zone names. Naive times use `start_timezone`, which
 defaults to UTC; `end_timezone` defaults to the chosen start timezone. This
@@ -115,10 +146,18 @@ emulate a single-occurrence or "this and following" edit.
 | `timetree_create_memo` | `calendar_id`, `title`, `confirm` | `date`, `note`, `label_id`, `location`, `url`, `checklist`, `virtual_user_attendees`. Date defaults to today's UTC date; stored as a category-2 all-day memo. |
 | `timetree_update_memo` | `calendar_id`, `memo_uuid`, `confirm`, at least one memo field | Same content fields as creation except `date`. |
 | `timetree_delete_memo` | `calendar_id`, `memo_uuid`, `confirm` | Irreversible deletion. |
-| `timetree_add_event_comment` | `calendar_id`, `event_uuid`, `content`, `confirm` | Optional `silent` defaults to true. This flag is not a guarantee about every upstream notification. |
+| `timetree_add_event_comment` | `calendar_id`, `event_uuid`, `content`, `confirm` | Optional boolean `silent` defaults to true when omitted and is sent to TimeTree. Its notification effects have not been verified; it does not guarantee that other members will not be notified. |
 | `timetree_update_event_comment` | `calendar_id`, `event_uuid`, `comment_id`, `content`, `confirm` | Updates a comment. |
 | `timetree_delete_event_comment` | `calendar_id`, `event_uuid`, `comment_id`, `confirm` | Irreversible deletion. |
 | `timetree_update_calendar_labels` | `calendar_id`, `labels`, `confirm` | Non-empty list of `{id, name?, color?}`; ID 1–10, color integer. Merges by ID and preserves omitted labels/fields. A previously absent label ID requires `color`. |
+
+**Argument-validation change in 0.5.0:** the server rejects `silent` and
+`content` on event create/update, and reject non-boolean `silent` values on
+comment creation. npm 0.4.0 accepted and ignored those two event parameters and
+accepted invalid comment values such as `null` or `"false"`. Remove the ignored
+event parameters (use `note` for an event note); omit comment `silent` to keep
+the default true, or supply JSON `true`/`false`. Documented valid inputs retain
+their behavior. This validation change does not establish notification suppression.
 
 Member and virtual-member tools are read-only. There are no member invitations,
 removals, virtual-member creation, calendar creation/deletion, or sharing tools.
@@ -149,15 +188,25 @@ with a new operation ID or bypass the durable series lock.
 The first successful poll establishes a baseline. Later differences emit MCP
 `notifications/message`, whose presentation depends on the client. No email,
 phone, webhook, cloud scheduling, or persistent hosted service is provided.
-Partial snapshots can look like removals; verify with a fresh calendar read.
-See [monitoring limits](usage.md#background-monitoring).
+In npm 0.4.0, partial snapshots can look like removals; verify with a fresh read.
+
+**Since 0.5.0:** only complete, validated snapshots replace the baseline.
+A bounded memory queue preserves stable batches in `not_sent`, `in_flight`, or
+`unknown` state. Only known-unsent batches are eligible for later automatic
+retry; uncertainty blocks subsequent delivery across scopes. Status adds
+`last_success`, completeness/baseline flags, pending counts/states,
+`delivery_blocked`, `stopping`, and `poll_in_flight`. `notifications_sent` and
+`transport_writes_succeeded` count completed local writes, not client receipt.
+Stop/start retains memory; process exit loses it without resolving uncertainty.
+A timed-out stop retains the old worker and prevents a second poller.
+See [monitoring state, limits, and delivery](monitoring.md) for the exact contract.
 
 ## Environment configuration
 
 | Variable | Purpose |
 | --- | --- |
-| `TIMETREE_EMAIL` | Login email; takes precedence over macOS Keychain. |
-| `TIMETREE_PASSWORD` | Login password; takes precedence over password file and Keychain. Avoid storing it in client JSON. |
+| `TIMETREE_EMAIL` | Login email; configure together with an environment password or password file. |
+| `TIMETREE_PASSWORD` | Login password; takes precedence over a password file. Avoid storing it in client JSON. |
 | `TIMETREE_PASSWORD_FILE` | Private UTF-8 password file; preferred when not using Keychain. |
 | `TIMETREE_PYTHON` | Single Python executable path used by the npm launcher. |
 | `TIMETREE_STATE_DIR` | Absolute, stable, private directory for the occurrence journal. |

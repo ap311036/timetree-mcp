@@ -50,10 +50,10 @@ class MacOSKeychainCredentialStore:
 
     def status(self) -> dict[str, bool]:
         try:
-            email, password = self._find_item(EMAIL_SERVICE), self._find_item(PASSWORD_SERVICE)
+            email, password = self._item_exists(EMAIL_SERVICE), self._item_exists(PASSWORD_SERVICE)
         except KeychainUnavailable:
             return {"available": False, "email_configured": False, "password_configured": False}
-        return {"available": True, "email_configured": bool(email), "password_configured": bool(password)}
+        return {"available": True, "email_configured": email, "password_configured": password}
 
     def clear(self) -> None:
         for service in (EMAIL_SERVICE, PASSWORD_SERVICE):
@@ -61,6 +61,17 @@ class MacOSKeychainCredentialStore:
                 self._delete_item(service)
             except KeychainUnavailable:
                 return
+
+    def _item_exists(self, service: str) -> bool:
+        # Without -w or -g, security returns item metadata, never password data.
+        result = self._run(
+            [SECURITY_COMMAND, "find-generic-password", "-a", KEYCHAIN_ACCOUNT, "-s", service]
+        )
+        if result.returncode == 0:
+            return True
+        if self._is_missing(result):
+            return False
+        raise RuntimeError("macOS Keychain status failed")
 
     def _find_item(self, service: str) -> str | None:
         result = self._run(

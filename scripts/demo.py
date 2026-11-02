@@ -28,7 +28,8 @@ class DemoReader:
         if operation == "list_calendars":
             return {"calendars": [{"id": "demo-family", "name": "Demo family"}]}
         if operation in {"list_events", "sync_events"}:
-            return {"events": deepcopy(self.events), "sync_complete": True}
+            return {"events": deepcopy(self.events), "sync_complete": True,
+                    "calendars": [{"id": "demo-family", "name": "Demo family"}]}
         if operation == "create_event":
             self.writes += 1
             return {"demo_only": True, "success": True,
@@ -73,7 +74,8 @@ def main():
         reader.events[0]["title"] = "Family lunch at the park"
         change = server.monitor.poll_once("demo-family")
         assert change["updated"] == 1 and len(notifications) == 1
-        show("Monitor change", change)
+        show("Monitor change (batch ID omitted)",
+             {key: value for key, value in change.items() if key != "batch_id"})
         show("Notification changes (timestamp omitted)", notifications[0]["changes"])
     finally:
         server.shutdown()

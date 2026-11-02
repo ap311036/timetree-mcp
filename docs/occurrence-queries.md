@@ -2,7 +2,7 @@
 
 Version **0.4.0** adds `timetree_list_occurrences` and
 `timetree_timezone_status`, bringing the server to 29 tools. Install
-`timetree-mcp@0.4.0` or use the matching source checkout. The older npm 0.3.0
+`timetree-mcp@0.5.0` or use the matching source checkout. The older npm 0.3.0
 package has 27 tools and does not include these additions.
 
 ## Read dated occurrences

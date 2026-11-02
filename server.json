@@ -3,7 +3,7 @@
   "name": "io.github.ap311036/timetree-mcp",
   "title": "TimeTree MCP",
   "description": "TimeTree MCP server for calendar search, events, memos, comments, and change monitoring. Local stdio; confirmation-gated writes.",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "websiteUrl": "https://github.com/ap311036/timetree-mcp",
   "repository": {
     "url": "https://github.com/ap311036/timetree-mcp",
@@ -14,20 +14,20 @@
     {
       "registryType": "npm",
       "identifier": "timetree-mcp",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "transport": {
         "type": "stdio"
       },
       "environmentVariables": [
         {
           "name": "TIMETREE_EMAIL",
-          "description": "TimeTree account email. Optional when the macOS Keychain contains the email.",
+          "description": "TimeTree account email. Set with TIMETREE_PASSWORD or TIMETREE_PASSWORD_FILE; omit all three to use a complete macOS Keychain pair. Partial sources are rejected.",
           "isRequired": false,
           "format": "string"
         },
         {
           "name": "TIMETREE_PASSWORD",
-          "description": "TimeTree account password. Prefer macOS Keychain or a password file instead of passing this directly.",
+          "description": "TimeTree account password paired with TIMETREE_EMAIL. Prefer macOS Keychain or a private password file; do not pass credentials as MCP tool arguments.",
           "isRequired": false,
           "isSecret": true,
           "format": "string"
@@ -41,7 +41,7 @@
         },
         {
           "name": "TIMETREE_BASE_URL",
-          "description": "Optional TimeTree web base URL override. Defaults to https://timetreeapp.com.",
+          "description": "Optional direct HTTPS origin override. Defaults to https://timetreeapp.com; custom origins must use HTTPS, with no credentials, path, query, or fragment. Proxy environments are rejected.",
           "isRequired": false,
           "format": "string"
         },

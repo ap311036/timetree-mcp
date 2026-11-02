@@ -1,6 +1,8 @@
 # Isolated calendar verification plan
 
-This is a plan, not a record of a successful live test. On 2026-11-01, no
+This is the separate fresh-calendar write-test plan; it has not been executed.
+The owner-reported read-only runner pass below does not execute this plan.
+On 2026-11-01, no
 authenticated calendar request, test-calendar creation, calendar write, or
 deletion was performed for this assessment. Offline tests use synthetic data.
 
@@ -34,13 +36,48 @@ force until the relevant live contract can be verified safely.
 
 ## Current blocker
 
+The separate [read-only stdio runner](e2e-runner.md) included in 0.5.0 uses a reviewed,
+hash-verified plan for known marked records in its one preauthorized calendar.
+It briefly reads that calendar's full raw snapshot in worker memory before
+fixture filtering. This bounded read-only flow is distinct from the fresh
+isolated-calendar write plan below; it does not authorize other targets,
+mutations, or reuse of browser/private cloud sessions. The owner reported a
+completed live stdio run with 8/8 planned-record checks passing. At the pre-release check, code
+hashes matched the reviewed code and the approved plan hash was unchanged. The
+report has no version/source/plan fingerprints, so the files actually loaded
+cannot be independently bound to the release artifact retroactively. Earlier
+CSRF failures are historical, as recorded in the runner guide.
+
+Version 0.5.0 shares its production authentication and HTTPS implementation
+between the ordinary reader and E2E guard; the guard still limits calendar
+reads, fixture projection, and output. Offline tests and independent review of
+shared authentication and the validated `/signin` to fixed `/calendars`
+bootstrap are complete, with no remaining blocker in the reviewed scope.
+It permits only one additional GET,
+without accepting redirect bodies, cookies, or tokens, and rejects a second
+redirect. All six read-only test fixtures were subsequently deleted through
+TimeTree's web interface and independently checked absent in the approved
+windows through a separate read-only calendar integration; monitoring state
+was unchanged. The completed plan and handoff cannot be rerun. No
+additional run is requested. The read-only pass and this cleanup do not verify
+npm installation or its original entry point, GUIs, alternate credential
+discovery, live writes, or notifications. Its credentials and in-memory HTTPS
+session remain separate from browser sessions and private cloud integrations;
+do not import their cookies or session state. Reads through another private
+integration are separate evidence. Local synthetic fixtures verify code
+behavior only.
+
 | Item | Status |
 | --- | --- |
 | Action | Provision and verify a new calendar isolated from all existing personal and work calendars, then run bounded synthetic DST/cross-zone tests. |
 | Target | A newly created test calendar with a newly verified ID; no existing calendar is an acceptable substitute. |
 | Missing capability | The public MCP tool set has no calendar-creation tool. Existing integration allowlists do not authorize new test targets. No authorized authenticated test-calendar creation session was established. |
-| Execution state | Not attempted. No authenticated calendar access or live mutation occurred; there was no permission denial or uncertain write. |
-| Required next step | Open/sign in to the official TimeTree UI in the connected browser using an authorized test account/session, then establish a fresh isolated calendar through its supported creation flow. Alternatively, provide an independently created fresh test calendar with authorized access. Confirm the exact test calendar before resuming. |
+| Execution state | This fresh-calendar write plan was not attempted. No authenticated calendar access or live mutation occurred for this plan; there was no permission denial or uncertain write. The separate read-only result above does not change this status. |
+| Required next step | The owner configures local public-package credentials and creates a fresh isolated calendar through TimeTree's supported UI, or provides a previously prepared fresh test calendar with authorized access. Confirm the exact test calendar before resuming. The UI is used for provisioning, not for importing its session into the public MCP server. |
+
+This table describes the separate fresh-calendar write plan and does not
+authorize another runner invocation. Its pending credential/setup requirements
+do not invalidate or expand the reported read-only pass.
 
 Changing credentials or bypassing an integration's calendar allowlist is not a
 way to establish isolation. Do not inspect existing calendars to find a
@@ -108,3 +145,13 @@ an existing personal or work calendar.
 Report each case as passed, failed, blocked, or not attempted, with the exact
 target class and reason. Publish only evidence actually collected; synthetic
 tests and public source inspection must remain distinguishable from live tests.
+
+## Notification evidence is a separate test
+
+The no-invitee recurrence plan above cannot establish whether other members
+receive TimeTree notifications. `silent` payload checks and a successful local
+MCP transport write cannot establish that either. Any future shared-notification
+test needs separate authorization for synthetic sender/recipient accounts, the
+exact test calendar and actions, client notification settings, and observed
+notification channels. No such test is recorded here. Keep notification
+suppression and user receipt marked as unverified.

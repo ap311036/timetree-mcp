@@ -5,7 +5,7 @@ It preserves the occurrence's duration and supported event metadata, creates a
 linked replacement, and excludes the original date from its series. It does
 not provide occurrence deletion, general recurrence editing, or "this and
 following" changes. These tools are not included in npm 0.2.4;
-use `timetree-mcp@0.4.0` or the matching [source checkout](usage.md#local-checkout).
+use `timetree-mcp@0.5.0` or the matching [source checkout](usage.md#local-checkout).
 
 This implementation was checked with synthetic fixtures. Current public
 TimeTree frontend code was inspected without authentication on 2026-10-31.
@@ -197,8 +197,10 @@ The operation first records its intent locally, then:
 3. Reads back and verifies the resulting calendar state before reporting
    success.
 
-Both writes use `silent: true`, following the observed first-party flow. This
-is not a guarantee about every upstream activity feed or client notification.
+Both writes send `silent: true`, following the observed first-party flow. Its
+notification effects have not been verified; it does not guarantee that activity
+feeds or other members' notifications are suppressed. Empty attendees or alerts
+do not establish that guarantee either. See [notification limits](tools.md#events).
 A failure between the requests can leave both the original occurrence and a
 replacement visible. A lost response can leave the actual outcome unknown.
 The implementation does not retry either write or perform an automatic

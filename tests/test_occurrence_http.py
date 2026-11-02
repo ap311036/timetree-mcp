@@ -2,10 +2,12 @@ import copy
 import tempfile
 import unittest
 from pathlib import Path
+from email.message import Message
 from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfoNotFoundError
 
-from timetree_mcp.http_reader import HttpResponse, TimeTreeHttpReader, UrllibTransport, _NoMutationRedirect
+from timetree_mcp.http_reader import HttpResponse, TimeTreeHttpReader, DirectHttpsTransport
+from timetree_mcp.http_transport import TransportError
 from timetree_mcp.server import TimeTreeMcpServer
 from test_occurrence_editor import SimulatedCalendar, millis
 
@@ -202,13 +204,18 @@ class OccurrenceHttpTests(unittest.TestCase):
         self.assertFalse(self.path.exists())
 
     def test_mutations_use_non_redirecting_transport(self):
-        transport = UrllibTransport()
-        response = Mock(status=200, headers={})
-        response.read.return_value = b'{}'
-        transport.opener = Mock()
-        transport.mutation_opener = Mock()
-        transport.mutation_opener.open.return_value = response
-        transport.request("POST", "https://example.test/event", {"title": "Synthetic"})
-        transport.opener.open.assert_not_called()
-        transport.mutation_opener.open.assert_called_once()
-        self.assertIsNone(_NoMutationRedirect().redirect_request(None, None, 302, "", {}, "https://example.test/other"))
+        headers = Message()
+        headers["Location"] = "https://other.invalid/"
+        response = Mock(status=302, headers=headers)
+        connection = Mock()
+        connection.getresponse.return_value = response
+        factory = Mock(return_value=connection)
+        transport = DirectHttpsTransport(origin="https://example.test", proxy_check=lambda: None,
+                                         connection_factory=factory)
+        with self.assertRaisesRegex(TransportError, "^http_redirect_rejected$"):
+            transport.request("POST", "https://example.test/event", {"title": "Synthetic"})
+        factory.assert_called_once()
+        connection.request.assert_called_once()
+        self.assertEqual(connection.request.call_args.args[:2], ("POST", "/event"))
+        response.read.assert_not_called()
+        connection.close.assert_called_once()

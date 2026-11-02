@@ -16,15 +16,17 @@ server，可搜尋行事曆、操作行程與備忘錄、管理留言及監控�
 Keychain 或本機密碼檔。
 
 ```bash
-npx --yes timetree-mcp@0.4.0
+npx --yes timetree-mcp@0.5.0
 ```
 
 **即使使用 npm，仍須安裝 Python 3.10+。** npm wrapper 另需 Node.js 18+。
 操作行事曆前，請先設定認證資料與 MCP client；上述指令啟動的是 stdio server，
 不是互動式聊天介面。
 
-**0.4.0** 提供 **29 個工具**，在 0.3.0 的 27 個工具上新增唯讀的重複場次查詢與時區資料診斷。
+**0.5.0** 維持 **29 個工具**，改善認證來源選擇、HTTPS 登入、同步完整性與監控狀態。
+唯讀的重複場次查詢與時區資料診斷於 0.4.0 加入。
 支援規則與驗證限制請見[場次查詢與時區診斷](#場次查詢與時區診斷)。
+升級相容性變更請見 [0.5.0 發版說明](docs/release-0.5.0.md)。
 
 [快速開始](#快速開始) · [Client 設定與驗證狀態](docs/clients.md) ·
 [可重現示範](docs/demo.md) · [工具清單](#mcp-tools)
@@ -116,8 +118,28 @@ python3 src/timetree_mcp/credentials.py status
 python3 src/timetree_mcp/credentials.py clear
 ```
 
-密碼依序優先使用環境變數、密碼檔，再使用 Keychain。
-Email 環境變數也優先於 Keychain。
+請提供完整認證組合：`TIMETREE_EMAIL` 搭配 `TIMETREE_PASSWORD` 或
+`TIMETREE_PASSWORD_FILE`；已設定的密碼優先於密碼檔。使用 Keychain 時，請移除這三個認證環境變數。
+
+**自 0.5.0 起：**明確設定的認證必須成對且非空，不會從 Keychain 補入缺少的欄位；
+完整的明確認證也不會存取 Keychain。`timetree_status` 僅回報選用來源與是否已設定，
+不讀取密碼檔內容或 Keychain 秘密；`credentials_configured` 不代表登入一定成功。
+這些變更未包含在 npm 0.4.0，詳見[認證選擇與狀態](docs/clients.md#credential-resolution-and-status)。
+
+**0.5.0** 讓一般 reader 與受限 E2E runner 共用同一套正式認證與 HTTPS 實作：
+一次登入 PUT，接著一次 `/signin` CSRF GET。只有精確驗證的日曆路徑 redirect，才允許額外一次固定的
+`/calendars` GET；不接受 redirect 的 body、cookie 或 token，第二次 redirect 會失敗。
+取得有效的 2xx CSRF 回應後才標示登入成功；失敗或取消會清除本機 session 狀態。
+預設 transport 現在會明確拒絕啟用或無法判定的 proxy、無效 HTTPS origin 與其他 redirect，
+並限制回應及 cookie 大小／數量。這會改變依賴 urllib 隱式 proxy 的環境相容性，
+npm 0.4.0 則維持原狀。詳見[共用認證與傳輸](docs/clients.md#shared-authentication-and-transport)。
+
+共用認證與單次日曆頁初始化的離線測試及獨立審查已完成，在所審查範圍內沒有剩餘阻擋。
+帳號擁有者回報真實 stdio 流程已完成，**8/8 項指定測試資料核對通過**。
+發版前檢查時，程式 hash 與已審查版本一致，核准計畫的 hash 也未變；但執行報告沒有版本／原始碼／計畫指紋，
+因此無法事後獨立確認當時實際載入的檔案就是發版產物。
+這項唯讀結果不涵蓋 npm 安裝與原始入口、GUI client、其他認證來源探索、真實寫入或通知收件。
+六筆測試資料之後已刪除並核對不存在，已完成的計畫不可重跑；詳見[回報結果與範圍](docs/e2e-runner.md)。
 
 ### 3. 連接 client
 
@@ -127,7 +149,7 @@ Codex 搭配密碼檔的設定：
 codex mcp add timetree \
   --env TIMETREE_EMAIL=your-email@example.com \
   --env TIMETREE_PASSWORD_FILE=/absolute/path/to/timetree-password \
-  -- npx --yes timetree-mcp@0.4.0
+  -- npx --yes timetree-mcp@0.5.0
 ```
 
 使用 macOS Keychain 時，省略兩個 `--env` 選項。若已有 `timetree` 設定，先檢查再替換。
@@ -169,6 +191,15 @@ Windows PowerShell 請改用 `.venv\Scripts\Activate.ps1` 啟用虛擬環境。
 一般行程時間支援 ISO-8601 字串或 Unix milliseconds；單次移動須精確到秒，且明確指定與系列時區相符的數字 UTC 偏移。
 更新或刪除前，先列出行事曆並核對
 讀取結果中的行程 ID。標籤採合併更新，保留未指定的標籤。
+
+空的 `attendees` 或 `alerts` 不代表其他日曆成員不會收到 TimeTree 通知。
+新增留言及單次移動會送出 `silent`，但尚未驗證它對通知的實際影響。
+一般行程建立／更新工具不提供受支援的 `silent` 參數。詳見[通知限制](docs/tools.md#events)。
+
+**0.5.0 修正：**行程建立／更新會拒絕先前被忽略的 `silent` 與 `content`；
+新增留言會拒絕 `null`、`"false"` 等非布林 `silent` 值。
+省略留言的 `silent` 仍預設為 true，也可傳入 JSON `true`／`false`。
+此驗證修正尚未包含在 npm 0.4.0；詳見[相容性說明](docs/tools.md#memos-comments-and-labels)。
 
 **0.3.0 新功能（0.2.4 未包含）：**可移動 `Asia/Taipei`、`Asia/Tokyo`、`Asia/Kolkata`、
 `America/New_York` 或 `Europe/London` 時區、非全天、每日／每週重複行程的單次場次，
@@ -213,7 +244,15 @@ Windows PowerShell 請改用 `.venv\Scripts\Activate.ps1` 啟用虛擬環境。
 此功能採輪詢，不是即時推播，也不會寄送 email 或手機通知。
 MCP 程序關閉後監控便會停止，不是持續運作的雲端服務；重新啟動程序後須再次啟動監控。
 使用 `timetree_monitor_status` 查看上次輪詢、錯誤與通知計數。
-部分同步結果可能看起來像行程被移除，請以重新讀取確認疑似刪除。
+npm 0.4.0 的部分同步結果可能看起來像行程被移除，請以重新讀取確認疑似刪除。
+
+**自 0.5.0 起：**只有完整且驗證通過的快照能推進基準。
+變更批次保存在有容量限制的記憶體佇列；已知未送出的批次可重試，
+傳輸結果不確定的批次則保持阻擋，不會自動重送。狀態分別回報輪詢嘗試、完整檢查、
+待處理批次與本機傳輸寫入成功次數；寫入成功不代表 client 顯示或使用者已收到。
+同一程序內停止／啟動會保留狀態，但程序重啟會遺失狀態，也不會釐清先前不確定結果。
+停止逾時會保留原工作執行緒並阻擋第二個輪詢器。詳見[監控狀態與交付](docs/monitoring.md)。
+這些變更未包含在 npm 0.4.0。
 
 ### 讀取完整性
 
@@ -224,7 +263,10 @@ MCP 程序關閉後監控便會停止，不是持續運作的雲端服務；重�
 
 行程日期範圍以 UTC 午夜為界，包含 `start_date`、不包含 `end_date`，並非事件時區的本地日界線。
 關鍵字搜尋涵蓋標題、筆記、地點、行事曆名稱／ID，以及回傳的標籤名稱。
-備忘錄另有 `updated_after` 篩選，但目前不回傳同步完整性欄位。
+備忘錄另有 `updated_after` 篩選。npm 0.4.0 不回傳備忘錄同步完整性欄位；
+**0.5.0** 提供 `sync_complete` 與略過／不完整行事曆診斷。
+原始識別資料不正確、重複或事件分頁無效時，也會標示為不完整並保留先前已接受的資料，
+不會聲稱已完整讀取；嚴格的重複場次讀取則會拒絕整份不完整來源。
 
 行事曆列表與預設行程同步僅處理啟用中的行事曆：`deactivated_at` 缺少、`null` 或數字 `0`
 視為啟用，非零數字視為停用。無效型別會明確報錯；明確指定停用行事曆也會在同步前被拒絕。
@@ -236,6 +278,8 @@ MCP 程序關閉後監控便會停止，不是持續運作的雲端服務；重�
 - [Client 設定](docs/clients.md)：設定範例與驗證狀態。
 - [示範](docs/demo.md)：可重現的操作及驗證界線。
 - [Usage guide](docs/usage.md)：本機開發與監控。
+- [監控狀態與交付](docs/monitoring.md)：0.5.0 的完整讀取驗證與待處理批次行為。
+- [本機 stdio 驗證](docs/e2e-runner.md)：擁有者回報 8/8 項唯讀核對通過、原始碼歸因限制與暫時認證流程。
 - [完整工具參考](docs/tools.md)：全部 29 個工具、支援欄位、預設值與環境設定。
 - [場次查詢](docs/occurrence-queries.md)：0.4.0 新增的重複規則展開與時區診斷。
 - [隔離日曆測試](docs/isolated-calendar-testing.md)：真實測試前提、目前阻擋與合成案例。

@@ -13,7 +13,11 @@ from typing import Any, Protocol
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from timetree_mcp.monitor import MonitorManager
+from timetree_mcp.monitor import (
+    MonitorManager,
+    NotificationDeliveryUncertain,
+    NotificationNotSent,
+)
 from timetree_mcp.occurrence_editor import validate_arguments as validate_occurrence_arguments
 from timetree_mcp.recurrence_query import validate_query_arguments
 from timetree_mcp.timezone_diagnostics import timezone_status, validate_timezone_name
@@ -40,7 +44,7 @@ SUPPORTED_PROTOCOL_VERSIONS = (
     "2026-07-28",
 )
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
-SERVER_VERSION = "0.4.0"
+SERVER_VERSION = "0.5.0"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 READ_TOOLS = {
@@ -346,27 +350,27 @@ class TimeTreeMcpServer:
             {"name": "timetree_get_occurrence_for_edit", "description": "Read and validate one timed DAILY/WEEKLY occurrence in Asia/Taipei, Asia/Tokyo, Asia/Kolkata, America/New_York or Europe/London. Start/end timezones must match. Returns a calendar revision and timezone; unsafe DST/metadata is rejected and unverified parent links mark it uneditable. No calendar writes.", "inputSchema": _object_schema(occurrence, list(occurrence))},
             {"name": "timetree_move_occurrence", "description": "Move ONLY one preflighted occurrence, preserving duration/metadata. Requires confirm=true, revision and operation_id. TWO NON-ATOMIC writes: create child then exclude original. Partial/uncertain operations remain durably blocked; never retry with a new ID or delete/rollback automatically.", "inputSchema": _object_schema(occurrence_move, list(occurrence_move))},
             {"name": "timetree_occurrence_operation_status", "description": "Read the local occurrence journal by operation_id, including the last dispatch phase and known child UUID. Does not query TimeTree, resume, retry, or unlock an uncertain operation.", "inputSchema": _object_schema({"operation_id": {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,160}$"}}, ["operation_id"])},
-            {"name": "timetree_login", "description": "Login to TimeTree over direct HTTPS using TIMETREE_EMAIL and TIMETREE_PASSWORD from the MCP environment; no browser is used.", "inputSchema": _object_schema({})},
+            {"name": "timetree_login", "description": "Login to TimeTree over direct HTTPS using one complete configured credential source: explicit integration settings, environment/password file, or macOS Keychain. Partial explicit settings fail without mixing sources. Do not pass credentials as tool arguments; browser sessions are not imported.", "inputSchema": _object_schema({})},
             {"name": "timetree_logout", "description": "Clear the in-memory TimeTree session cookie and CSRF token.", "inputSchema": _object_schema({})},
             {"name": "timetree_keychain_status", "description": "Report whether the macOS Keychain contains TimeTree email/password items; never returns their values.", "inputSchema": _object_schema({})},
-            {"name": "timetree_create_event", "description": "Create a TimeTree event. Requires confirm=true and writes to the real calendar.", "inputSchema": _object_schema(event_create, ["calendar_id", "title", "start_at", "end_at", "confirm"])},
-            {"name": "timetree_update_event", "description": "Update selected fields of a TimeTree event. Requires confirm=true.", "inputSchema": _object_schema(event_update, ["calendar_id", "event_uuid", "confirm"])},
+            {"name": "timetree_create_event", "description": "Create a TimeTree event. Requires confirm=true and writes to the real calendar. The silent argument is unsupported; upstream notifications may occur.", "inputSchema": _object_schema(event_create, ["calendar_id", "title", "start_at", "end_at", "confirm"])},
+            {"name": "timetree_update_event", "description": "Update selected fields of a TimeTree event. Requires confirm=true. The silent argument is unsupported; upstream notifications may occur.", "inputSchema": _object_schema(event_update, ["calendar_id", "event_uuid", "confirm"])},
             {"name": "timetree_delete_event", "description": "Delete a TimeTree event. This cannot be undone and requires confirm=true.", "inputSchema": _object_schema(event_delete, ["calendar_id", "event_uuid", "confirm"])},
             {"name": "timetree_list_memos", "description": "Read category-2 TimeTree memos from a calendar.", "inputSchema": _object_schema({"calendar_id": ID_SCHEMA, "updated_after": TIME_SCHEMA, "limit": {"type": "integer", "minimum": 1, "maximum": 500}}, ["calendar_id"])},
             {"name": "timetree_create_memo", "description": "Create a TimeTree memo. Requires confirm=true.", "inputSchema": _object_schema(memo_create, ["calendar_id", "title", "confirm"])},
             {"name": "timetree_update_memo", "description": "Update a TimeTree memo. Requires confirm=true.", "inputSchema": _object_schema(memo_update, ["calendar_id", "memo_uuid", "confirm"])},
             {"name": "timetree_delete_memo", "description": "Delete a TimeTree memo. This cannot be undone and requires confirm=true.", "inputSchema": _object_schema(memo_delete, ["calendar_id", "memo_uuid", "confirm"])},
             {"name": "timetree_list_event_comments", "description": "Read comments attached to a TimeTree event.", "inputSchema": _object_schema({"calendar_id": ID_SCHEMA, "event_uuid": {"type": "string"}}, ["calendar_id", "event_uuid"])},
-            {"name": "timetree_add_event_comment", "description": "Add a comment to a TimeTree event. Requires confirm=true.", "inputSchema": _object_schema({"calendar_id": ID_SCHEMA, "event_uuid": {"type": "string"}, "content": {"type": "string"}, "silent": {"type": "boolean", "default": True}, "confirm": CONFIRM_SCHEMA}, ["calendar_id", "event_uuid", "content", "confirm"])},
+            {"name": "timetree_add_event_comment", "description": "Add a comment to a TimeTree event. Requires confirm=true. Passes TimeTree's silent flag, whose notification effects are unverified; it does not guarantee notification suppression.", "inputSchema": _object_schema({"calendar_id": ID_SCHEMA, "event_uuid": {"type": "string"}, "content": {"type": "string"}, "silent": {"type": "boolean", "default": True, "description": "Forwarded to TimeTree; notification effects are unverified. Does not guarantee other members will not be notified. Must be a boolean when provided; defaults to true when omitted."}, "confirm": CONFIRM_SCHEMA}, ["calendar_id", "event_uuid", "content", "confirm"])},
             {"name": "timetree_update_event_comment", "description": "Update a TimeTree event comment. Requires confirm=true.", "inputSchema": _object_schema({"calendar_id": ID_SCHEMA, "event_uuid": {"type": "string"}, "comment_id": {"type": "string"}, "content": {"type": "string"}, "confirm": CONFIRM_SCHEMA}, ["calendar_id", "event_uuid", "comment_id", "content", "confirm"])},
             {"name": "timetree_delete_event_comment", "description": "Delete a TimeTree event comment. Requires confirm=true.", "inputSchema": _object_schema({"calendar_id": ID_SCHEMA, "event_uuid": {"type": "string"}, "comment_id": {"type": "string"}, "confirm": CONFIRM_SCHEMA}, ["calendar_id", "event_uuid", "comment_id", "confirm"])},
             {"name": "timetree_get_calendar_labels", "description": "Read all labels for a TimeTree calendar.", "inputSchema": _object_schema({"calendar_id": ID_SCHEMA}, ["calendar_id"])},
             {"name": "timetree_update_calendar_labels", "description": "Merge-update TimeTree label names/colors. Requires confirm=true; omitted labels are preserved.", "inputSchema": _object_schema({"calendar_id": ID_SCHEMA, "labels": {"type": "array", "minItems": 1, "items": {"type": "object", "properties": {"id": {"type": "integer", "minimum": 1, "maximum": 10}, "name": {"type": "string"}, "color": {"type": "integer"}}, "required": ["id"], "additionalProperties": False}}, "confirm": CONFIRM_SCHEMA}, ["calendar_id", "labels", "confirm"])},
             {"name": "timetree_get_calendar_members", "description": "Read active members of a TimeTree calendar, optionally including deactivated members.", "inputSchema": _object_schema({"calendar_id": ID_SCHEMA, "include_deactivated": {"type": "boolean", "default": False}}, ["calendar_id"])},
             {"name": "timetree_get_calendar_virtual_members", "description": "Read virtual members of a TimeTree calendar, optionally including deactivated members.", "inputSchema": _object_schema({"calendar_id": ID_SCHEMA, "include_deactivated": {"type": "boolean", "default": False}}, ["calendar_id"])},
-            {"name": "timetree_start_monitor", "description": "Start background polling for calendar changes; changes are sent as MCP notifications/message.", "inputSchema": _object_schema({"calendar_id": ID_SCHEMA, "interval_seconds": {"type": "integer", "minimum": 30, "maximum": 3600, "default": 300}})},
-            {"name": "timetree_stop_monitor", "description": "Stop the background TimeTree change monitor.", "inputSchema": _object_schema({})},
-            {"name": "timetree_monitor_status", "description": "Read background monitor state and last error/change information.", "inputSchema": _object_schema({})},
+            {"name": "timetree_start_monitor", "description": "Start process-local polling of complete calendar snapshots. Changes use MCP notifications/message; transport writes do not prove client receipt. Uncertain notifications remain pending without automatic retry. Baselines and pending state are memory-only.", "inputSchema": _object_schema({"calendar_id": ID_SCHEMA, "interval_seconds": {"type": "integer", "minimum": 30, "maximum": 3600, "default": 300}})},
+            {"name": "timetree_stop_monitor", "description": "Request stopping the monitor without clearing baselines or pending notifications. Inspect stopping and poll_in_flight: an in-progress read may still be finishing, and restart is refused until it stops.", "inputSchema": _object_schema({})},
+            {"name": "timetree_monitor_status", "description": "Read monitor activity, last successful baseline, incomplete-check errors, and pending notification states. Unknown delivery blocks automatic sending; notifications_sent counts completed transport writes, not client receipts. State is memory-only.", "inputSchema": _object_schema({})},
         ]
         for tool in tools:
             tool["annotations"] = TOOL_ANNOTATIONS[tool["name"]]
@@ -431,7 +435,7 @@ class TimeTreeMcpServer:
         base = {
             "calendar_id", "confirm", "title", "all_day", "start_at", "start_timezone", "end_at", "end_timezone",
             "label_id", "category", "note", "location", "url", "attendees", "recurrences", "alerts", "file_uuids",
-            "checklist", "virtual_user_attendees", "event_uuid", "memo_uuid", "comment_id", "content", "silent",
+            "checklist", "virtual_user_attendees", "event_uuid", "memo_uuid", "comment_id",
             "date", "updated_after", "limit", "query", "start_date", "end_date", "labels", "include_deactivated", "interval_seconds",
         }
         specific = {
@@ -464,6 +468,8 @@ class TimeTreeMcpServer:
             raise ValueError(f"Unsupported argument(s): {', '.join(unknown)}")
         if name in WRITE_TOOLS:
             require_confirmation(arguments)
+        if "silent" in arguments and not isinstance(arguments["silent"], bool):
+            raise ValueError("silent must be a boolean")
         if name == "timetree_list_occurrences":
             validate_query_arguments(arguments)
         if name == "timetree_timezone_status" and "timezone" in arguments:
@@ -547,11 +553,30 @@ def run_stdio(server: TimeTreeMcpServer) -> None:
     """Serve newline-delimited JSON-RPC messages and async monitor notifications."""
 
     output_lock = threading.Lock()
+    transport_uncertain = False
 
     def write_message(message: dict[str, Any]) -> None:
+        nonlocal transport_uncertain
+        # Serialization has not touched stdout and is safe to classify as unsent.
+        try:
+            encoded = json.dumps(message, ensure_ascii=False, separators=(",", ":"), allow_nan=False) + "\n"
+        except (TypeError, ValueError, OverflowError, RecursionError):
+            raise NotificationNotSent("stdio_message_not_serializable") from None
         with output_lock:
-            sys.stdout.write(json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n")
-            sys.stdout.flush()
+            if transport_uncertain:
+                raise NotificationNotSent("stdio_transport_unavailable")
+            try:
+                written = sys.stdout.write(encoded)
+                if type(written) is not int or written != len(encoded):
+                    raise OSError("incomplete text write")
+                sys.stdout.flush()
+            except BaseException as exc:
+                # A write or flush may fail after some/all bytes were accepted.
+                # Continuing could append a second JSON message to a partial line.
+                transport_uncertain = True
+                if not isinstance(exc, Exception):
+                    raise
+                raise NotificationDeliveryUncertain("stdio_delivery_uncertain") from None
 
     def notify(data: dict[str, Any]) -> None:
         write_message({"jsonrpc": "2.0", "method": "notifications/message", "params": {"level": "info", "logger": "timetree-monitor", "data": data}})

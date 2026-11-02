@@ -16,17 +16,19 @@ It runs locally over stdio, connects directly to TimeTree over HTTPS, and requir
 calendar writes. Keep credentials in macOS Keychain or a local password file.
 
 ```bash
-npx --yes timetree-mcp@0.4.0
+npx --yes timetree-mcp@0.5.0
 ```
 
 **Python 3.10+ is required even when using npm.** The wrapper also requires
 Node.js 18+. Configure credentials and an MCP client before using calendar tools;
 the command above starts a stdio server, not an interactive chat interface.
 
-Version **0.4.0** provides **29 tools**, adding read-only recurrence occurrence
-queries and timezone diagnostics to the 27 tools in 0.3.0. See
+Version **0.5.0** keeps **29 tools** and improves credential selection, HTTPS
+authentication, synchronization completeness, and monitoring state. Read-only
+occurrence queries and timezone diagnostics were introduced in 0.4.0. See
 [occurrence queries and timezone diagnostics](#occurrence-queries-and-timezone-diagnostics)
-for the supported rules and validation limits.
+for the supported rules and validation limits, and the
+[0.5.0 release notes](docs/release-0.5.0.md) for compatibility changes.
 
 [Quick start](#quick-start) · [Client setup and validation status](docs/clients.md) ·
 [Reproducible demo](docs/demo.md) · [Tool reference](#mcp-tools)
@@ -122,8 +124,40 @@ the credential environment variables in client configuration. To remove the item
 python3 src/timetree_mcp/credentials.py clear
 ```
 
-An environment password takes precedence over a password file, then Keychain.
-The email environment variable takes precedence over Keychain.
+Configure a complete pair: `TIMETREE_EMAIL` with `TIMETREE_PASSWORD` or
+`TIMETREE_PASSWORD_FILE`. A configured password takes precedence over the file.
+To use Keychain, remove all three credential environment variables.
+
+**Since 0.5.0:** explicit credentials must form a complete,
+nonempty pair; partial settings cannot borrow the missing value from Keychain.
+A complete explicit pair does not consult Keychain. `timetree_status` reports
+the selected source and presence only; it does not read password-file contents
+or Keychain secrets, and `credentials_configured` does not prove login will
+succeed. These changes are not in npm 0.4.0. See [credential resolution](docs/clients.md#credential-resolution-and-status).
+
+Version **0.5.0** shares one production authentication and HTTPS
+implementation between the ordinary reader and guarded E2E runner: one sign-in
+PUT, then one `/signin` CSRF GET. One exactly validated calendar-route redirect
+can permit a single fixed `/calendars` GET; redirect bodies, cookies, and tokens
+are not accepted, and a second redirect fails. Authentication is marked
+successful only after a valid 2xx CSRF response. Failure/cancellation clears
+local session state. The default
+transport now explicitly rejects active/unknown proxies, invalid HTTPS origins,
+and other redirects; response/cookie limits also apply. This changes compatibility
+with environments that relied on urllib's implicit proxy behavior. npm 0.4.0
+is unchanged. See [shared authentication and transport](docs/clients.md#shared-authentication-and-transport).
+
+Offline tests and independent review of shared authentication and the bounded
+calendar-page bootstrap are complete, with no remaining blocker in the reviewed
+scope. The owner reported a completed live stdio run with **8/8 planned-record
+checks passed**. At the pre-release check, implementation hashes matched the
+reviewed code and the approved plan hash was unchanged. The report has no
+version/source/plan fingerprint, so the files actually loaded cannot be
+independently tied to the release artifact retroactively. This read-only result does not verify npm installation or its
+original entry point, GUI clients, alternate credential discovery, live writes,
+or notification receipt. The six fixtures were subsequently removed and
+checked absent; the completed test plan must not be rerun. See the
+[reported result and scope](docs/e2e-runner.md).
 
 ### 3. Connect your client
 
@@ -133,7 +167,7 @@ For Codex with a password file:
 codex mcp add timetree \
   --env TIMETREE_EMAIL=your-email@example.com \
   --env TIMETREE_PASSWORD_FILE=/absolute/path/to/timetree-password \
-  -- npx --yes timetree-mcp@0.4.0
+  -- npx --yes timetree-mcp@0.5.0
 ```
 
 For macOS Keychain, omit both `--env` options. If a `timetree` entry already exists,
@@ -178,6 +212,17 @@ time inputs accept ISO-8601 strings or Unix milliseconds; occurrence moves requi
 whole seconds and an explicit numeric UTC offset matching the series timezone. List calendars and inspect returned
 event identifiers before an update or deletion. Omitted labels are preserved by
 label merge updates.
+
+Empty `attendees` or `alerts` do not guarantee that other calendar members will
+not receive TimeTree notifications. Comment creation and occurrence moves send
+`silent`, but its notification effects have not been verified. Event create/update
+tools do not provide a supported `silent` parameter. See [notification limits](docs/tools.md#events).
+
+**Changed in 0.5.0:** event create/update reject the previously
+ignored `silent` and `content` parameters; comment creation rejects non-boolean
+`silent` values such as `null` or `"false"`. Omit comment `silent` to keep its
+default true, or supply JSON `true`/`false`. This validation change is not in
+npm 0.4.0; [compatibility details](docs/tools.md#memos-comments-and-labels).
 
 **New in 0.3.0 (not included in 0.2.4):** move one timed DAILY/WEEKLY occurrence in
 `Asia/Taipei`, `Asia/Tokyo`, `Asia/Kolkata`, `America/New_York`, or `Europe/London`, preserving its duration and supported
@@ -235,7 +280,17 @@ is polling, not instant push, and does not send email or phone notifications.
 Monitoring stops when the MCP process exits and does not run as a persistent
 cloud service. Restarting the process requires starting monitoring again.
 Use `timetree_monitor_status` to inspect the last poll, errors, and notification count.
-Partial snapshots can appear as removals; verify apparent deletions with a fresh read.
+In npm 0.4.0, partial snapshots can appear as removals; verify them with a fresh read.
+
+**Since 0.5.0:** only complete, validated snapshots can advance
+the baseline. Change batches are held in a bounded memory queue; known-unsent
+batches can be retried, while uncertain transport writes remain blocked without
+automatic replay. Status distinguishes attempts, complete checks, pending
+batches, and successful local transport writes. A write count is not proof of
+client display or user receipt. Stop/start retains state only within the same
+process; process restart loses it and does not resolve uncertainty. A timed-out
+stop keeps the existing worker and blocks a second poller. See [monitoring state
+and delivery](docs/monitoring.md). These changes are not in npm 0.4.0.
 
 ### Read completeness
 
@@ -249,8 +304,12 @@ failed calendars with no retrieved events appear in `skipped_calendars` and make
 Event date-range boundaries are UTC midnight, with an inclusive `start_date`
 and exclusive `end_date`; they are not local-day boundaries in the event's zone.
 Keyword search covers titles, notes, locations, calendar names/IDs, and returned
-label names. Memo reads have a separate `updated_after` filter but currently
-do not expose synchronization completeness fields.
+label names. Memo reads have a separate `updated_after` filter. npm 0.4.0 does
+not expose memo synchronization completeness; **0.5.0** adds
+`sync_complete` and skipped/incomplete-calendar diagnostics to memo results.
+It also treats malformed or duplicate source identities and invalid event
+pages as incomplete, preserving previously accepted data instead of claiming
+a complete read. Strict occurrence reads reject incomplete sources entirely.
 
 Calendar listing and default event sync include active calendars only:
 `deactivated_at` missing, `null`, or numeric `0` means active; nonzero numbers mean
@@ -264,6 +323,8 @@ schedule or interpreting apparent removals.
 - [Client setup](docs/clients.md): configuration examples and validation status.
 - [Demo](docs/demo.md): reproducible behavior and verification boundaries.
 - [Usage guide](docs/usage.md): local development and monitoring.
+- [Monitoring state and delivery](docs/monitoring.md): complete-read and pending-batch behavior in 0.5.0.
+- [Local stdio verification](docs/e2e-runner.md): owner-reported 8/8 read-only fixture pass, source-binding limits, and temporary-credential workflow.
 - [Complete tool reference](docs/tools.md): all 29 tools, supported fields, defaults, and configuration.
 - [Occurrence queries](docs/occurrence-queries.md): recurrence expansion and timezone diagnostics added in 0.4.0.
 - [Isolated calendar tests](docs/isolated-calendar-testing.md): live-test prerequisites, current blocker, and synthetic cases.

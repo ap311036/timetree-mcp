@@ -196,6 +196,21 @@ class RecurrenceQueryTests(unittest.TestCase):
         self.assertTrue(result["complete"])
         self.assertEqual([row["start_at"][11:16] for row in result["occurrences"]], ["14:00", "13:00", "13:00"])
 
+    def test_anonymous_observed_daily_count_contract_retains_nine_am_across_dst(self):
+        # Preserve only the observed rule/time shape, never real calendar IDs.
+        # This is a local regression, not public-client live verification.
+        source = event(start="2030-03-08T09:00:00-05:00", end="2030-03-08T09:30:00-05:00",
+                       zone="America/New_York", rules=["RRULE:FREQ=DAILY;COUNT=3"])
+        result = query([source], "2030-03-08T00:00:00+08:00", "2030-03-11T00:00:00+08:00")
+        self.assertTrue(result["complete"])
+        self.assertEqual([row["start_at"] for row in result["occurrences"]], [
+            "2030-03-08T14:00:00+00:00", "2030-03-09T14:00:00+00:00", "2030-03-10T13:00:00+00:00",
+        ])
+        self.assertTrue(all(row["start_local"][11:19] == "09:00:00" for row in result["occurrences"]))
+        earlier = query([source], "2026-11-02T00:00:00+08:00", "2026-12-02T00:00:00+08:00")
+        self.assertTrue(earlier["complete"])
+        self.assertEqual(earlier["occurrences"], [])
+
     def test_dst_unsafe_history_discards_entire_series_even_if_earlier_rows_were_valid(self):
         source = event(start="2030-03-09T02:30:00-05:00", end="2030-03-09T03:30:00-05:00",
                        zone="America/New_York", rules=["RRULE:FREQ=DAILY;COUNT=3"])
