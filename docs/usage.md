@@ -10,7 +10,7 @@ Windows caveats, and the exact scope of verification.
 With Node.js 18+ and a separately installed Python 3.10+:
 
 ```bash
-npx --yes timetree-mcp@0.5.0
+npx --yes timetree-mcp@0.6.0
 ```
 
 This pins the version documented here. Check release notes before choosing
@@ -18,7 +18,8 @@ a newer version. The wrapper starts the bundled Python stdio server; it does
 not install Python or open an interactive terminal interface. Your MCP client
 should launch the command and communicate over stdin/stdout.
 
-Version 0.5.0 has 29 tools and improves authentication, synchronization
+Version 0.6.0 adds a [read-only review prompt and static resource](prompts-and-resources.md),
+keeps 29 tools, and retains the 0.5.0 improvements to authentication, synchronization
 completeness, and monitoring state. Occurrence queries and timezone diagnostics
 were introduced in 0.4.0; the older 0.3.0 package has 27 tools and lacks them.
 

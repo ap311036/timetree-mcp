@@ -597,6 +597,15 @@ class WorkerScopeTests(unittest.TestCase):
         self.assertIn("error", result)
         self.assertEqual(transport.requests, [])
 
+    def test_guidance_methods_remain_outside_restricted_live_worker(self):
+        for method in ("prompts/list", "prompts/get", "resources/list", "resources/read", "resources/templates/list"):
+            with self.subTest(method=method):
+                server, reader, transport = self.make_server()
+                self.addCleanup(server.shutdown)
+                response = server.handle({"jsonrpc": "2.0", "id": 1, "method": method, "params": {}})
+                self.assertEqual(response["error"], {"code": -32600, "message": "e2e_request_denied"})
+                self.assertEqual(transport.requests, [])
+
     def test_requires_explicit_single_login_and_logout_drops_credentials(self):
         server, reader, transport = self.make_server()
         result = server.handle(rpc("timetree_list_occurrences", plan()["checks"][0]["arguments"]))

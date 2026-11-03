@@ -9,6 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-339933)](package.json)
 [![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-3776AB)](pyproject.toml)
+[![MCP Badge](https://lobehub.com/badge/mcp/ap311036-timetree-mcp)](https://lobehub.com/mcp/ap311036-timetree-mcp)
 
 TimeTree MCP は、カレンダー、予定、メモ、コメントの読み取りと更新に使える
 [Model Context Protocol](https://modelcontextprotocol.io/) サーバーです。
@@ -17,12 +18,15 @@ TimeTree MCP は、カレンダー、予定、メモ、コメントの読み取�
 認証情報は macOS キーチェーンやローカルのパスワードファイルに保存できます。
 
 ```bash
-npx --yes timetree-mcp@0.5.0
+npx --yes timetree-mcp@0.6.0
 ```
 
 **npm を使う場合も Python 3.10 以上が必要です。** npm ランチャーには Node.js 18 以上も必要です。
 カレンダーを操作する前に、認証情報と MCP クライアントを設定してください。
 上のコマンドは stdio サーバーを起動するもので、対話型のチャット画面を開くものではありません。
+
+**0.6.0** は読み取り専用のレビュープロンプトと静的な安全ガイドを追加し、
+全 **29 ツール**を維持します。[0.6.0 リリースノート](docs/release-0.6.0.md)を参照してください。
 
 **0.5.0** は全 **29 ツール**を維持し、認証情報の選択、HTTPS 認証、同期の完全性、監視状態を改善します。
 繰り返し予定の期間照会とタイムゾーン診断は 0.4.0 で追加されました。
@@ -157,7 +161,7 @@ Codex とパスワードファイルを使う場合：
 codex mcp add timetree \
   --env TIMETREE_EMAIL=your-email@example.com \
   --env TIMETREE_PASSWORD_FILE=/absolute/path/to/timetree-password \
-  -- npx --yes timetree-mcp@0.5.0
+  -- npx --yes timetree-mcp@0.6.0
 ```
 
 macOS キーチェーンを使う場合は 2 つの `--env` オプションを省略します。
@@ -181,9 +185,31 @@ Windows の PowerShell では `.venv\Scripts\Activate.ps1` で仮想環境を有
 インストールすると `timetree-mcp` と `timetree-credentials` コマンドが利用できます。
 インストールせずに `python3 src/timetree_mcp/server.py` で起動することもできます。
 
+## MCP プロンプトとリソース（0.6.0）
+
+**0.6.0** にはプロンプト 1 件とリソース 1 件が追加され、**29 ツールは変更されません**。
+MCP の prompts または resources に対応したクライアントが必要です。
+プロトコルの互換性は [0.6.0 リリースノート](docs/release-0.6.0.md)を参照してください。
+
+- `timetree_review_schedule` は、選んだ 1 つのカレンダーを読み取り専用で確認するテンプレートを返します。
+  `calendar_id` には `timetree_list_calendars` が返す数字の `id` を使い、Web URL の短縮コードは使いません。
+  `start_date` は開始日を含み、`end_date` は終了日を含みません。どちらも **UTC の午前 0 時**を境界とし、
+  期間は最大 93 日です。カレンダーのタイムゾーンにおけるローカル日の境界ではありません。
+  予定の回の照会結果が完全か確認し、不確かな点を報告するようアシスタントを案内します。
+  不完全な結果から空き時間を断定することはできません。テンプレートの取得自体は、
+  ログイン、TimeTree の照会、カレンダーへの書き込みを行いません。
+- `timetree://guides/safe-usage` は、クライアントがコンテキストとして添付できる静的な
+  **TimeTree safe usage guide** を提供します。認証情報や予定の記録は含まれず、
+  読み取り時に認証情報、カレンダー、ローカルファイルへアクセスすることもありません。
+
+テンプレートを使うか、ガイドを添付するかはクライアントが制御します。
+アシスタントがカレンダーツールを呼び出す前に、対象のカレンダーと期間を確認してください。
+引数、UTC の例、対応プロトコル、検証の範囲は
+[プロンプトと静的ガイド](docs/prompts-and-resources.md)を参照してください。
+
 ## MCP tools
 
-0.5.0 は全 29 ツールを提供します。期間照会と診断の 2 ツールは 0.4.0 で追加されました。
+0.6.0 は全 29 ツールを提供します。期間照会と診断の 2 ツールは 0.4.0 で追加されました。
 
 | 分類 | ツール |
 |---|---|

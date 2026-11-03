@@ -54,6 +54,11 @@ ownership, and no recrawl request or ranking improvement is claimed here.
 
 ## Maintenance
 
+Version 0.6.0 includes LobeHub's official compact README badge. Its external
+rating is not a security audit or a guaranteed score/ranking improvement. See
+[badge and optional capabilities](prompts-and-resources.md#lobehub-badge-and-optional-scoring-items)
+for the source and verification limits.
+
 - Keep the README, package metadata, tool schemas, and release notes consistent.
 - Describe stable capabilities before unreleased experiments, and retain
   installation requirements and verification limits.

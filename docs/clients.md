@@ -236,13 +236,13 @@ The installed `codex mcp add --help` supports a stdio command after `--` and
 codex mcp add timetree \
   --env TIMETREE_EMAIL=your-email@example.com \
   --env TIMETREE_PASSWORD_FILE=/absolute/path/to/timetree-password \
-  -- npx --yes timetree-mcp@0.5.0
+  -- npx --yes timetree-mcp@0.6.0
 ```
 
 With macOS Keychain already configured:
 
 ```bash
-codex mcp add timetree -- npx --yes timetree-mcp@0.5.0
+codex mcp add timetree -- npx --yes timetree-mcp@0.6.0
 ```
 
 If needed, add `--env TIMETREE_PYTHON=/absolute/path/to/python3` before `--`.
@@ -266,7 +266,7 @@ documents **Settings → Developer → Edit Config**. Paths include
   "mcpServers": {
     "timetree": {
       "command": "npx",
-      "args": ["--yes", "timetree-mcp@0.5.0"],
+      "args": ["--yes", "timetree-mcp@0.6.0"],
       "env": {
         "TIMETREE_EMAIL": "your-email@example.com",
         "TIMETREE_PASSWORD_FILE": "/absolute/path/to/timetree-password"
@@ -293,7 +293,7 @@ describes stdio settings and configuration locations.
     "timetree": {
       "type": "stdio",
       "command": "npx",
-      "args": ["--yes", "timetree-mcp@0.5.0"],
+      "args": ["--yes", "timetree-mcp@0.6.0"],
       "env": {
         "TIMETREE_EMAIL": "your-email@example.com",
         "TIMETREE_PASSWORD_FILE": "/absolute/path/to/timetree-password"
@@ -311,7 +311,7 @@ tool approvals enabled while trying the integration.
 OpenAI's current [local MCP guide](https://developers.openai.com/codex/mcp)
 documents a ChatGPT desktop **Settings → MCP servers → Add server** flow with
 STDIO support. If your installed desktop app exposes that flow, choose STDIO,
-use command `npx` with arguments `--yes`, `timetree-mcp@0.5.0`, and configure
+use command `npx` with arguments `--yes`, `timetree-mcp@0.6.0`, and configure
 credentials as above. Local clients on the same Codex host share MCP
 configuration. This recipe has not been tested in the desktop UI.
 
@@ -331,7 +331,7 @@ direct `npx` startup fails, the command fields can be:
 ```json
 {
   "command": "cmd",
-  "args": ["/c", "npx", "--yes", "timetree-mcp@0.5.0"],
+  "args": ["/c", "npx", "--yes", "timetree-mcp@0.6.0"],
   "env": {
     "TIMETREE_PYTHON": "C:\\Path\\To\\Python\\python.exe",
     "TIMETREE_EMAIL": "your-email@example.com",

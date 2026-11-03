@@ -9,6 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-339933)](package.json)
 [![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-3776AB)](pyproject.toml)
+[![MCP Badge](https://lobehub.com/badge/mcp/ap311036-timetree-mcp)](https://lobehub.com/mcp/ap311036-timetree-mcp)
 
 TimeTree MCP is a [Model Context Protocol](https://modelcontextprotocol.io/)
 server for calendar search, events, memos, comments, and change monitoring.
@@ -16,12 +17,15 @@ It runs locally over stdio, connects directly to TimeTree over HTTPS, and requir
 calendar writes. Keep credentials in macOS Keychain or a local password file.
 
 ```bash
-npx --yes timetree-mcp@0.5.0
+npx --yes timetree-mcp@0.6.0
 ```
 
 **Python 3.10+ is required even when using npm.** The wrapper also requires
 Node.js 18+. Configure credentials and an MCP client before using calendar tools;
 the command above starts a stdio server, not an interactive chat interface.
+
+Version **0.6.0** adds a read-only review prompt and static safety resource while
+keeping **29 tools**. See the [0.6.0 release notes](docs/release-0.6.0.md).
 
 Version **0.5.0** keeps **29 tools** and improves credential selection, HTTPS
 authentication, synchronization completeness, and monitoring state. Read-only
@@ -167,7 +171,7 @@ For Codex with a password file:
 codex mcp add timetree \
   --env TIMETREE_EMAIL=your-email@example.com \
   --env TIMETREE_PASSWORD_FILE=/absolute/path/to/timetree-password \
-  -- npx --yes timetree-mcp@0.5.0
+  -- npx --yes timetree-mcp@0.6.0
 ```
 
 For macOS Keychain, omit both `--env` options. If a `timetree` entry already exists,
@@ -191,6 +195,29 @@ python -m pip install --editable .
 On Windows, activate with `.venv\Scripts\Activate.ps1` in PowerShell.
 This installs `timetree-mcp` and `timetree-credentials`. You can also run the server
 without installation using `python3 src/timetree_mcp/server.py`.
+
+## MCP prompts and resources (0.6.0)
+
+Version **0.6.0** adds one prompt and one resource; the **29 tools are unchanged**.
+These interfaces require a client that supports MCP prompts or resources.
+See the [0.6.0 release notes](docs/release-0.6.0.md) for protocol compatibility.
+
+- `timetree_review_schedule` returns a read-only review template for one selected
+  calendar. Use the numeric `id` returned by `timetree_list_calendars` as
+  `calendar_id`, not a Web URL short code. `start_date` is inclusive and
+  `end_date` is exclusive, both at **UTC midnight**, for a range of at most
+  93 days. These are not local-day boundaries. It guides the assistant to check
+  occurrence-query completeness and report
+  uncertainty; incomplete results cannot establish that a time is free. Getting
+  the template does not log in, query TimeTree, or write to a calendar.
+- `timetree://guides/safe-usage` provides the static **TimeTree safe usage guide**
+  for clients to attach as context. It contains no credentials or calendar
+  records, and reading it does not access credentials, calendars, or local files.
+
+The client controls whether to use the template or attach the guide. Review the
+selected calendar and date range before the assistant calls calendar tools.
+See [prompts and static guidance](docs/prompts-and-resources.md) for arguments,
+UTC examples, protocol support, and verification limits.
 
 ## MCP tools
 

@@ -9,6 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Node.js >=18](https://img.shields.io/badge/node-%3E%3D18-339933)](package.json)
 [![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-3776AB)](pyproject.toml)
+[![MCP Badge](https://lobehub.com/badge/mcp/ap311036-timetree-mcp)](https://lobehub.com/mcp/ap311036-timetree-mcp)
 
 TimeTree MCP 是 [Model Context Protocol](https://modelcontextprotocol.io/)
 server，可搜尋行事曆、操作行程與備忘錄、管理留言及監控變更。它在本機透過 stdio 執行，直接以 HTTPS
@@ -16,12 +17,15 @@ server，可搜尋行事曆、操作行程與備忘錄、管理留言及監控�
 Keychain 或本機密碼檔。
 
 ```bash
-npx --yes timetree-mcp@0.5.0
+npx --yes timetree-mcp@0.6.0
 ```
 
 **即使使用 npm，仍須安裝 Python 3.10+。** npm wrapper 另需 Node.js 18+。
 操作行事曆前，請先設定認證資料與 MCP client；上述指令啟動的是 stdio server，
 不是互動式聊天介面。
+
+**0.6.0** 新增唯讀檢視提示詞及靜態安全資源，維持 **29 個工具**。
+請見 [0.6.0 發版說明](docs/release-0.6.0.md)。
 
 **0.5.0** 維持 **29 個工具**，改善認證來源選擇、HTTPS 登入、同步完整性與監控狀態。
 唯讀的重複場次查詢與時區資料診斷於 0.4.0 加入。
@@ -149,7 +153,7 @@ Codex 搭配密碼檔的設定：
 codex mcp add timetree \
   --env TIMETREE_EMAIL=your-email@example.com \
   --env TIMETREE_PASSWORD_FILE=/absolute/path/to/timetree-password \
-  -- npx --yes timetree-mcp@0.5.0
+  -- npx --yes timetree-mcp@0.6.0
 ```
 
 使用 macOS Keychain 時，省略兩個 `--env` 選項。若已有 `timetree` 設定，先檢查再替換。
@@ -171,6 +175,26 @@ python -m pip install --editable .
 Windows PowerShell 請改用 `.venv\Scripts\Activate.ps1` 啟用虛擬環境。
 安裝後會提供 `timetree-mcp` 與 `timetree-credentials` 指令。
 也可不安裝，直接執行 `python3 src/timetree_mcp/server.py`。
+
+## MCP 提示詞與資源（0.6.0）
+
+**0.6.0** 新增一個提示詞及一個資源，**29 個工具維持不變**。
+需要支援 MCP prompts 或 resources 的 client；協定相容性請見
+[0.6.0 發版說明](docs/release-0.6.0.md)。
+
+- `timetree_review_schedule` 回傳單一所選行事曆的唯讀檢視模板。
+  `calendar_id` 必須使用 `timetree_list_calendars` 回傳的數字 `id`，不能使用網頁網址短碼。
+  `start_date` 含起日、`end_date` 不含迄日，皆以 **UTC 午夜**為邊界，範圍最多 93 天；
+  這些邊界不是行事曆所在時區的本地日界。
+  模板引導助手檢查場次查詢的完整性並回報不確定之處；不完整的結果不能證明時段有空。
+  取得模板本身不會登入、查詢 TimeTree 或寫入行事曆。
+- `timetree://guides/safe-usage` 提供可由 client 附加為上下文的靜態
+  **TimeTree safe usage guide**。內容不含認證資料或行程記錄，讀取時不會存取
+  認證、行事曆或本機檔案。
+
+是否使用模板或附加指南由 client 控制。助手呼叫行事曆工具前，請核對所選的
+行事曆與日期範圍。參數、UTC 範例、協定支援與驗證限制詳見
+[提示詞與靜態指南](docs/prompts-and-resources.md)。
 
 ## MCP tools
 

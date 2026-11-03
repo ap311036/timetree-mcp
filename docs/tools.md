@@ -1,10 +1,14 @@
 # MCP tool reference
 
-Version 0.5.0 advertises 29 tools through `tools/list`. Version 0.4.0 introduced
+Version 0.6.0 advertises 29 tools through `tools/list`. Version 0.4.0 introduced
 occurrence queries and timezone diagnostics, adding to the 27 tools in 0.3.0. The three occurrence
 editing/status tools were introduced in 0.3.0 and are not included in npm 0.2.4.
 Check [release and installation guidance](usage.md) before selecting a version.
 The advertised tool schemas are the exact machine-readable argument reference.
+
+The 0.6.0 [prompt and static resource](prompts-and-resources.md)
+provide a read-only schedule-review workflow and a safety reference. They are
+separate MCP interfaces and do not add tools.
 
 All calendar writes below require the boolean `confirm: true`. The assistant
 must obtain approval for the actual target and scope; the flag alone is not

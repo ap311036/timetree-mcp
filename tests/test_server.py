@@ -45,7 +45,8 @@ class ServerProtocolTests(unittest.TestCase):
         )
 
         self.assertEqual(response["result"]["protocolVersion"], "2025-03-26")
-        self.assertEqual(response["result"]["capabilities"], {"tools": {}, "logging": {}})
+        self.assertEqual(response["result"]["capabilities"], {
+            "tools": {}, "logging": {}, "prompts": {}, "resources": {}})
 
     def test_tools_list_exposes_all_requested_tools_in_deterministic_order(self):
         response = self.server.handle(

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "timetree-mcp"
-version = "0.5.0"
+version = "0.6.0"
 description = "TimeTree MCP server for calendar search, events, memos, comments, and change monitoring. Local stdio; confirmation-gated writes."
 readme = "README.md"
 requires-python = ">=3.10"

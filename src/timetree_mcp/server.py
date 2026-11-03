@@ -18,6 +18,7 @@ from timetree_mcp.monitor import (
     NotificationDeliveryUncertain,
     NotificationNotSent,
 )
+from timetree_mcp.guidance import ResourceNotFound, guidance_result
 from timetree_mcp.occurrence_editor import validate_arguments as validate_occurrence_arguments
 from timetree_mcp.recurrence_query import validate_query_arguments
 from timetree_mcp.timezone_diagnostics import timezone_status, validate_timezone_name
@@ -41,10 +42,9 @@ SUPPORTED_PROTOCOL_VERSIONS = (
     "2025-03-26",
     "2025-06-18",
     "2025-11-25",
-    "2026-07-28",
 )
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
-SERVER_VERSION = "0.5.0"
+SERVER_VERSION = "0.6.0"
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 READ_TOOLS = {
@@ -287,6 +287,13 @@ class TimeTreeMcpServer:
             return self._result(request_id, {"tools": self.tool_definitions()})
         if method == "tools/call":
             return self._call_tool(request_id, message.get("params") or {})
+        if method in {"prompts/list", "prompts/get", "resources/list", "resources/read", "resources/templates/list"}:
+            try:
+                return self._result(request_id, guidance_result(method, message.get("params", {})))
+            except ResourceNotFound:
+                return self._error(request_id, -32002, "Unknown resource")
+            except ValueError as exc:
+                return self._error(request_id, -32602, str(exc))
         return self._error(request_id, -32601, f"Method not found: {method}")
 
     def _initialize(self, request_id: Any, params: dict[str, Any]) -> dict[str, Any]:
@@ -296,7 +303,7 @@ class TimeTreeMcpServer:
             request_id,
             {
                 "protocolVersion": version,
-                "capabilities": {"tools": {}, "logging": {}},
+                "capabilities": {"tools": {}, "logging": {}, "prompts": {}, "resources": {}},
                 "serverInfo": {"name": "timetree-mcp", "version": SERVER_VERSION},
                 "instructions": (
                     "TimeTree read/write access through the direct HTTPS session. "
